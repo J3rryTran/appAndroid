@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cửa sổ KHOÁ DỌC (xem AndroidManifest) => layout này không bao giờ xoay.
+    Nhờ vậy nút/thông tin tự động đứng yên trên thân máy; chỉ ICON được xoay mượt
+    bằng animation trong MainActivity theo cảm biến.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <!-- Camera preview (CameraX). Giữ hệ toạ độ cửa sổ, không xoay theo cảm biến. -->
+    <androidx.camera.view.PreviewView
+        android:id="@+id/previewView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:scaleType="fitCenter" />
+
+    <!--
+        Overlay vẽ bounding box.
+        MainActivity.applyOverlayRotation() sẽ đặt kích thước (hoán đổi w/h khi máy
+        nằm ngang) + setRotation(-deviceDegrees) để hệ toạ độ của overlay TRÙNG với
+        hệ toạ độ ảnh phân tích (đã xoay thẳng đứng theo trọng lực).
+    -->
+    <com.example.faceidentity.view.CameraPreview
+        android:id="@+id/overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center" />
+
+    <!-- Bảng thông tin FPS + số khuôn mặt -->
+    <LinearLayout
+        android:id="@+id/infoPanel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="12dp"
+        android:background="@color/overlay_bg"
+        android:orientation="vertical"
+        android:padding="10dp">
+
+        <TextView
+            android:id="@+id/tvFps"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="FPS: 0.0"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Số khuôn mặt: 0"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Gợi ý xoay ngang: CHỈ icon, hiện khi máy chưa nằm ngang -->
+    <ImageView
+        android:id="@+id/ivHint"
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_circle_button"
+        android:contentDescription="@string/hint_rotate"
+        android:padding="22dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_screen_rotate" />
+
+    <!--
+        Hàng nút: cửa sổ không xoay nên nút luôn nằm đúng cạnh này trên thân máy.
+        Kích thước CỐ ĐỊNH 64dp -> không co, không xuống dòng.
+    -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:padding="20dp">
+
+        <ImageButton
+            android:id="@+id/btnStart"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_marginEnd="20dp"
+            android:background="@drawable/bg_circle_button"
+            android:contentDescription="@string/start"
+            android:padding="16dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_play" />
+
+        <ImageButton
+            android:id="@+id/btnStop"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_marginEnd="20dp"
+            android:background="@drawable/bg_circle_button"
+            android:contentDescription="@string/stop"
+            android:padding="18dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_stop" />
+
+        <ImageButton
+            android:id="@+id/btnSwitch"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:background="@drawable/bg_circle_button"
+            android:contentDescription="@string/switch_camera"
+            android:padding="16dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_cam_switch" />
+    </LinearLayout>
+
+</FrameLayout>
