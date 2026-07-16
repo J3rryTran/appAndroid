@@ -15,9 +15,9 @@ public final class FileUtils {
     public static String copyAssetToInternal(Context ctx, String assetPath) throws IOException {
         String fileName = new File(assetPath).getName();
         File outFile = new File(ctx.getFilesDir(), fileName);
-        if (outFile.exists() && outFile.length() > 0) {
-            return outFile.getAbsolutePath();
-        }
+        // LUÔN copy đè (không cache): nếu bạn thay NỘI DUNG model trong assets mà giữ
+        // nguyên tên file, bản cache cũ trong internal storage sẽ bị dùng nhầm.
+        // Model nhỏ (~vài trăm KB - vài MB) nên copy lại mỗi lần mở app là không đáng kể.
 
         AssetManager am = ctx.getAssets();
         try (InputStream is = am.open(assetPath);

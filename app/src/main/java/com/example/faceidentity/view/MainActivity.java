@@ -20,20 +20,33 @@ import androidx.camera.view.PreviewView;
 import com.example.faceidentity.R;
 import com.example.faceidentity.controller.CameraController;
 import com.example.faceidentity.controller.FaceDetectionController;
-import com.example.faceidentity.model.FaceDetectorModel;
+import com.example.faceidentity.model.DetectorFactory;
+import com.example.faceidentity.model.FaceDetector;
+import com.example.faceidentity.utils.CrashLogger;
 import com.example.faceidentity.utils.FileUtils;
 import com.example.faceidentity.utils.PermissionUtils;
 
 import org.opencv.android.OpenCVLoader;
+import org.opencv.core.CvType;
+import org.opencv.core.Mat;
+import org.opencv.core.Scalar;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity
         implements FaceDetectionController.ResultListener {
 
     private static final String TAG = "MainActivity";
-    private static final String MODEL_ASSET = "models/face_detection_yunet_2023mar.onnx";
-    private static final float SCORE_THRESHOLD = 0.9f;
-    private static final float NMS_THRESHOLD   = 0.3f;
-    private static final int   TOP_K           = 5000;
+
+    // Multi-model: mọi file model trong assets/models được liệt kê lúc mở app.
+    // NHẤN GIỮ nút đổi cam để chuyển model. Backend chọn theo tên file (DetectorFactory):
+    //   *.onnx có "yunet" -> FaceDetectorYN | *.onnx khác -> RFB (OpenCV DNN)
+    //   *.tflite -> TensorFlow Lite         | *.param -> ncnn (chưa tích hợp JNI)
+    private static final String MODELS_DIR = "models";
+    private static final String DEFAULT_MODEL = "RFB-landmark-Epoch-149-Loss-30.2965.onnx";
 
     private static final long ICON_ROTATE_MS = 250L;
 
@@ -43,6 +56,7 @@ public class MainActivity extends AppCompatActivity
     private View infoPanel;
     private TextView tvFps;
     private TextView tvCount;
+    private TextView tvModel;
     private ImageView ivHint;
     private ImageButton btnStart;
     private ImageButton btnStop;
@@ -50,7 +64,10 @@ public class MainActivity extends AppCompatActivity
 
     private CameraController cameraController;
     private volatile FaceDetectionController detectionController;
-    private FaceDetectorModel faceModel;
+    private FaceDetector faceDetector;
+
+    private String[] modelList = new String[0];
+    private int modelIndex = 0;
 
     private OrientationEventListener orientationListener;
     private int deviceDegrees = 0;
@@ -66,6 +83,7 @@ public class MainActivity extends AppCompatActivity
         infoPanel   = findViewById(R.id.infoPanel);
         tvFps       = findViewById(R.id.tvFps);
         tvCount     = findViewById(R.id.tvCount);
+        tvModel     = findViewById(R.id.tvModel);
         ivHint      = findViewById(R.id.ivHint);
         btnStart    = findViewById(R.id.btnStart);
         btnStop     = findViewById(R.id.btnStop);
@@ -77,10 +95,11 @@ public class MainActivity extends AppCompatActivity
 
         if (!OpenCVLoader.initDebug()) {
             Toast.makeText(this, "OpenCV init thất bại!", Toast.LENGTH_LONG).show();
-            Log.e(TAG, "OpenCVLoader.initDebug() = false");
+            CrashLogger.logError(TAG, "OpenCVLoader.initDebug() = false", null);
             return;
         }
         Log.i(TAG, "OpenCV init OK");
+        Log.i(TAG, "File log lỗi/crash: " + CrashLogger.logDirPath());
         cameraController = new CameraController(
                 this, this, previewView,
                 image -> {
@@ -94,6 +113,7 @@ public class MainActivity extends AppCompatActivity
         cameraController.setLensFacing(CameraSelector.LENS_FACING_FRONT);
         cameraController.setLensChangedListener(isFront -> overlay.setMirror(isFront));
 
+        initModelList();
         loadModel();
 
         btnStart.setOnClickListener(v -> startDetection());
@@ -104,6 +124,11 @@ public class MainActivity extends AppCompatActivity
             Toast.makeText(this,
                     cameraController.isFront() ? R.string.cam_front : R.string.cam_back,
                     Toast.LENGTH_SHORT).show();
+        });
+        // NHẤN GIỮ nút đổi cam = chuyển model kế tiếp trong assets/models.
+        btnSwitch.setOnLongClickListener(v -> {
+            nextModel();
+            return true;
         });
         orientationListener = new OrientationEventListener(this) {
             @Override
@@ -224,32 +249,127 @@ public class MainActivity extends AppCompatActivity
         tvFps.setText(getString(R.string.fps, 0.0));
     }
 
+    // ---------------------------------------------------------------------
+    // Multi-model
+    // ---------------------------------------------------------------------
+
+    /** Quét assets/models -> danh sách model hỗ trợ; trỏ vào DEFAULT_MODEL nếu có. */
+    private void initModelList() {
+        List<String> found = new ArrayList<>();
+        try {
+            String[] all = getAssets().list(MODELS_DIR);
+            if (all != null) {
+                for (String f : all) {
+                    if (DetectorFactory.isSupportedFile(f)) found.add(f);
+                }
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Không đọc được assets/" + MODELS_DIR, e);
+        }
+        Collections.sort(found);
+        modelList = found.toArray(new String[0]);
+        modelIndex = 0;
+        for (int i = 0; i < modelList.length; i++) {
+            if (modelList[i].equals(DEFAULT_MODEL)) {
+                modelIndex = i;
+                break;
+            }
+        }
+        Log.i(TAG, "Model trong assets: " + found);
+    }
+
+    /** Chuyển model kế tiếp (gọi khi NHẤN GIỮ nút đổi cam). */
+    private void nextModel() {
+        if (modelList.length == 0) {
+            Toast.makeText(this, "Không có model nào trong assets/models", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        stopDetection();
+        releaseCurrentModel();
+        modelIndex = (modelIndex + 1) % modelList.length;
+        loadModel();
+        updateOrientationGate();
+        if (detectionController != null) {
+            Toast.makeText(this, "Model: " + modelList[modelIndex], Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void loadModel() {
         if (detectionController != null) return;
+        if (modelList.length == 0) {
+            tvModel.setText(getString(R.string.model_label, "KHÔNG CÓ"));
+            Toast.makeText(this, "Không có model nào trong assets/models", Toast.LENGTH_LONG).show();
+            return;
+        }
+        String fileName = modelList[modelIndex];
         try {
-            String modelPath = FileUtils.copyAssetToInternal(this, MODEL_ASSET);
-            faceModel = new FaceDetectorModel(modelPath, SCORE_THRESHOLD, NMS_THRESHOLD, TOP_K);
-            faceModel.init();
-            detectionController = new FaceDetectionController(faceModel, this);
-            Log.i(TAG, "Model load OK: " + modelPath);
+            String modelPath = FileUtils.copyAssetToInternal(this, MODELS_DIR + "/" + fileName);
+            faceDetector = DetectorFactory.create(fileName, modelPath);
+            faceDetector.init();
+
+            // SMOKE TEST: detect thử ảnh giả NGAY LÚC LOAD (main thread, có catch).
+            // Model sai kiến trúc lộ ở đây thay vì nổ trên analysis thread lúc START.
+            smokeTest(faceDetector);
+
+            detectionController = new FaceDetectionController(faceDetector, this);
+            tvModel.setText(getString(R.string.model_label,
+                    faceDetector.name() + " · " + fileName));
+            Log.i(TAG, "Model load OK [" + faceDetector.name() + "]: " + modelPath);
         } catch (java.io.FileNotFoundException e) {
-            Toast.makeText(this,
-                    "THIẾU MODEL: app/src/main/assets/" + MODEL_ASSET
-                            + "\nChép file .onnx và build lại (xem README).",
+            releaseCurrentModel();
+            tvModel.setText(getString(R.string.model_label, fileName + " (thiếu file)"));
+            Toast.makeText(this, "THIẾU MODEL: assets/" + MODELS_DIR + "/" + fileName,
                     Toast.LENGTH_LONG).show();
-            Log.e(TAG, "Model chưa có trong assets: " + MODEL_ASSET, e);
+            CrashLogger.logError(TAG, "Model chưa có trong assets: " + fileName, e);
         } catch (Exception e) {
-            Toast.makeText(this, "Load model lỗi: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            Log.e(TAG, "Load model lỗi", e);
+            releaseCurrentModel();
+            tvModel.setText(getString(R.string.model_label, fileName + " (lỗi)"));
+            String reason = (e instanceof UnsupportedOperationException)
+                    ? e.getMessage()
+                    : "Model không chạy được với backend: " + fileName + " (xem Logcat)";
+            Toast.makeText(this, reason, Toast.LENGTH_LONG).show();
+            CrashLogger.logError(TAG, "Load/kiểm tra model lỗi: " + fileName, e);
+        }
+    }
+
+    /** Detect thử 1 ảnh đen 320x240 để xác nhận model chạy được với backend đã chọn. */
+    private static void smokeTest(FaceDetector d) {
+        Mat dummy = new Mat(240, 320, CvType.CV_8UC3, new Scalar(0, 0, 0));
+        try {
+            d.detect(dummy);
+        } finally {
+            dummy.release();
+        }
+    }
+
+    /** Giải phóng model hiện tại (controller sẽ release detector bên trong). */
+    private void releaseCurrentModel() {
+        if (detectionController != null) {
+            detectionController.release();
+            detectionController = null;
+            faceDetector = null;
+            return;
+        }
+        if (faceDetector != null) {
+            faceDetector.release();
+            faceDetector = null;
         }
     }
 
     @Override
-    public void onResult(float[] boxes, int faceCount,
+    public void onResult(float[] boxes, float[] landmarks, int faceCount,
                          int frameWidth, int frameHeight, double fps) {
-        overlay.setResults(boxes, frameWidth, frameHeight);
+        overlay.setResults(boxes, landmarks, frameWidth, frameHeight);
         tvCount.setText(getString(R.string.face_count, faceCount));
         tvFps.setText(getString(R.string.fps, fps));
+    }
+
+    @Override
+    public void onDetectionError(Exception e) {
+        stopDetection();
+        Toast.makeText(this,
+                "Detect gặp lỗi và đã tự dừng (chi tiết: logs/error-*.log).",
+                Toast.LENGTH_LONG).show();
     }
 
     @Override
@@ -283,7 +403,6 @@ public class MainActivity extends AppCompatActivity
         super.onDestroy();
         if (orientationListener != null) orientationListener.disable();
         if (cameraController != null) cameraController.shutdown();
-        if (detectionController != null) detectionController.release();
-        if (faceModel != null) faceModel.release();
+        releaseCurrentModel();
     }
 }

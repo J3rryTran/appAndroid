@@ -59,6 +59,16 @@
             android:textColor="@color/white"
             android:textSize="16sp"
             android:textStyle="bold" />
+
+        <!-- Model đang dùng (nhấn giữ nút đổi cam để chuyển model) -->
+        <TextView
+            android:id="@+id/tvModel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Model: -"
+            android:textColor="@color/white"
+            android:textSize="11sp" />
     </LinearLayout>
 
     <!-- Gợi ý xoay ngang: CHỈ icon, hiện khi máy chưa nằm ngang -->

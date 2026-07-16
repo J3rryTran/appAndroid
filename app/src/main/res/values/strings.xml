@@ -14,4 +14,7 @@
     <!-- Toast báo camera đang dùng sau khi đổi -->
     <string name="cam_front">Camera trước</string>
     <string name="cam_back">Camera sau</string>
+
+    <!-- Nhãn model đang dùng (nhấn giữ nút đổi cam để chuyển model) -->
+    <string name="model_label">Model: %s</string>
 </resources>
