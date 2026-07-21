@@ -5,7 +5,9 @@
 
 - Ngôn ngữ: Java · Min SDK: 24 · Kiến trúc: MVC
 - Camera: CameraX (ImageAnalysis, RGBA_8888) — mặc định **cam trước**, có nút đổi
-- Detector: **chỉ** YuNet (không Haar, không DNN cũ)
+- Detector: **multi-backend** — YuNet (`FaceDetectorYN`) · RFB/Ultra-Light (OpenCV DNN)
+  · TFLite (TensorFlow Lite) · ncnn (điểm cắm, cần JNI) — xem mục 11
+- **Đổi model lúc chạy**: NHẤN GIỮ nút đổi cam để chuyển giữa các model trong `assets/models/`
 - Xoay kiểu **app camera hệ thống**: cửa sổ khoá dọc, chỉ icon xoay mượt theo cảm biến
 - Ràng buộc: **phải nghiêng máy sang NGANG** thì nút START mới bật
 
@@ -222,8 +224,10 @@ Ký thủ công (tùy chọn):
 
 ## 8. Kiến trúc MVC (tóm tắt)
 
-- **Model** — `FaceDetectorModel`: bọc `FaceDetectorYN`, chỉ lo detect.
-- **View** — `MainActivity` (UI, nút, quyền), `CameraPreview` (vẽ box overlay).
+- **Model** — `FaceDetector` (interface) + `DetectorFactory` + các backend:
+  `YuNetDetector` · `RfbOnnxDetector` · `TfliteRfbDetector` · `NcnnDetector` (stub);
+  kết quả trả qua `DetectionResult` (boxes/scores/landmarks).
+- **View** — `MainActivity` (UI, nút, quyền, chọn model), `CameraPreview` (vẽ box overlay).
 - **Controller** — `CameraController` (CameraX), `FaceDetectionController` (điều phối detect, FPS, count).
 - **Utils** — `FileUtils` (copy model), `ImageUtils` (ImageProxy→Mat), `PermissionUtils` (quyền).
 
@@ -285,3 +289,138 @@ Các app camera hệ thống làm ngược lại — **khoá cửa sổ** (`port
 
 > Đổi mặc định về cam sau: trong `MainActivity.onCreate()` sửa
 > `setLensFacing(CameraSelector.LENS_FACING_BACK)`.
+
+---
+
+## 11. Multi-model / Multi-backend (thử nghiệm nhiều model)
+
+### 11.1. Thử một model mới (KHÔNG sửa code Java)
+1. Thả `<model>.onnx` (hoặc `.tflite`) vào `app/src/main/assets/models/`.
+2. Thả kèm `<model>.json` cùng thư mục để mô tả cách chạy (xem 11.3).
+3. **Rebuild** (assets đóng gói lúc build) → mở app.
+4. **NHẤN GIỮ nút đổi cam** để chuyển giữa các model. Model mặc định = `MainActivity.DEFAULT_MODEL`.
+
+> Không có `.json` → app đoán backend theo tên file: có "yunet" → `FaceDetectorYN`;
+> còn lại → `GenericOnnxDetector` với cấu hình mặc định (RFB-640).
+
+### 11.2. Backend
+
+| File | Backend | Ghi chú |
+|---|---|---|
+| `.onnx`, `backend:"yunet"` | `YuNetDetector` | Chỉ model YuNet chuẩn OpenCV Zoo (raw cls/obj/bbox/kps, input động). |
+| `.onnx`, `backend:"onnx"` | `GenericOnnxDetector` (OpenCV DNN) | **Cấu hình hoàn toàn bằng JSON.** Model end-to-end (decode đã bake). |
+| `.tflite` | `TfliteRfbDetector` | Dùng JSON cho mean/scale/ngưỡng; input size đọc từ tensor. |
+| `.param` | `NcnnDetector` (stub) | Chưa tích hợp — xem 11.5. |
+| `.pt` / `.pth` | — | **Checkpoint PyTorch (train) — không chạy trên Android.** Chọn trong app sẽ hiện lệnh export ONNX. |
+
+### 11.3. File cấu hình JSON (`<model>.json`)
+
+```json
+{
+  "backend": "onnx",
+  "input": [640, 640],
+  "mean": [127, 127, 127],
+  "scale": 0.0078125,
+  "swapRB": true,
+  "box": "corner",
+  "normalized": true,
+  "score": "softmax2",
+  "scoreThreshold": 0.7,
+  "nmsThreshold": 0.3
+}
+```
+
+| Khoá | Ý nghĩa |
+|---|---|
+| `backend` | `"onnx"` hoặc `"yunet"` |
+| `input` | `[W, H]` — phải khớp input model (dùng `tools/onnx_inspect.py` để đọc) |
+| `mean` | trừ mean theo thứ tự kênh truyền cho `blobFromImage` |
+| `scale` | nhân sau khi trừ mean (`1/128 = 0.0078125`, hoặc `1.0`) |
+| `swapRB` | `true` nếu model ăn RGB (OpenCV đọc BGR) |
+| `box` | `"corner"` (x1,y1,x2,y2) hoặc `"center"` (cx,cy,w,h) |
+| `normalized` | `true`: toạ độ 0..1 · `false`: pixel theo input size |
+| `score` | `"softmax2"` (2 kênh, lấy kênh mặt) hoặc `"sigmoid1"` (1 kênh) |
+
+Nhận diện output theo **số kênh cuối**: score (1/2), box (4), landmark (10 — tùy chọn),
+không phụ thuộc thứ tự/tên tensor.
+
+### 11.4. Ví dụ config theo kiến trúc
+
+**Ultra-Light / RFB (Linzaer)** — mean 127, RGB:
+```json
+{"backend":"onnx","input":[640,640],"mean":[127,127,127],"scale":0.0078125,"swapRB":true,"box":"corner","normalized":true,"score":"softmax2"}
+```
+**RetinaFace (biubug6)** — mean BGR 104/117/123, không swap, không scale:
+```json
+{"backend":"onnx","input":[640,640],"mean":[104,117,123],"scale":1.0,"swapRB":false,"box":"corner","normalized":true,"score":"softmax2","scoreThreshold":0.6}
+```
+**YOLO (Ultralytics — YOLO26/v10/v8/v5)** — /255, RGB, toạ độ pixel. Dạng output được
+tự nhận diện (e2e `[1,N,6]` · v5 `[1,N,6]` N lớn · raw `[1,C,N]`), không phải chỉnh `box`/`score`:
+```json
+{"backend":"onnx","input":[640,640],"mean":[0,0,0],"scale":0.00392157,"swapRB":true,"box":"corner","normalized":false,"score":"sigmoid1","scoreThreshold":0.25,"nmsThreshold":0.45}
+```
+Export từ checkpoint `.pt` (chạy trong môi trường đã train):
+```
+yolo export model=shufflenet-slim-250e.pt format=onnx imgsz=640 opset=12
+```
+Copy file `.onnx` ra vào `assets/models/` **giữ nguyên tên gốc** để khớp file `.json` cùng tên.
+
+**Giới hạn:** với model tách kênh (RFB/RetinaFace...), `GenericOnnxDetector` cần output
+**đã bake decode**; model cần sinh prior box thủ công thì phải export lại kèm hậu xử lý.
+Riêng YOLO raw `[1,C,N]` đã được decode sẵn trong app (center-form + max class + NMS).
+
+### 11.5. ncnn — cần gì để tích hợp thật
+ncnn không có Java API thuần, không có Maven chính chủ, model là **cặp** `.param`+`.bin`:
+1. Tải prebuilt `ncnn-YYYYMMDD-android-vulkan.zip` từ https://github.com/Tencent/ncnn/releases.
+2. Giải nén vào project, viết JNI C++ (`native-lib.cpp` bọc `ncnn::Net`: `load_param`/`load_model` → `Extractor`).
+3. Thêm `externalNativeBuild { cmake { path "src/main/cpp/CMakeLists.txt" } }` vào `app/build.gradle`.
+4. Điền phần thân `NcnnDetector` bằng lời gọi native.
+Hiện tại chọn file `.param` sẽ hiện thông báo hướng dẫn (không crash).
+
+### 11.6. An toàn khi thử model lạ (đã cài sẵn 2 lớp)
+- **Smoke test lúc load**: detect thử 1 ảnh giả ngay khi chọn model — model sai kiến trúc
+  bị chặn tại chỗ với Toast rõ ràng, START không bật.
+- **Try/catch trên analysis thread**: nếu detect ném lỗi giữa chừng → tự dừng + báo UI,
+  không văng app. Đổi model lúc đang chạy cũng an toàn (release có khoá chống use-after-free).
+
+---
+
+## 12. Log & chẩn đoán (kể cả khi VĂNG app)
+
+### 12.1. Log realtime (Logcat)
+```powershell
+adb logcat -s FaceDetectionCtrl     # FPS + số mặt, mỗi ~0.5s: "FPS=18.2 | faces=2"
+adb logcat -s MainActivity CameraController GenericOnnx TfliteRfbDetector YuNetDetector CrashLogger
+```
+
+### 12.2. Log ra FILE (xem lại được sau khi app chết)
+`FaceApp` (Application) cài `CrashLogger.install()` — một `Thread.UncaughtExceptionHandler`
+toàn cục:
+
+| File | Nội dung |
+|---|---|
+| `logs/crash-<yyyyMMdd>.log` | **Mọi crash** (uncaught exception, mọi thread) — ghi TRƯỚC khi app chết: thời gian, thread, stacktrace đầy đủ, thông tin máy. Sau đó vẫn chuyển tiếp cho hệ thống (crash dialog + logcat như thường). |
+| `logs/error-<yyyyMMdd>.log` | Lỗi runtime **đã catch** (load model fail, detect lỗi, camera không mở...) qua `CrashLogger.logError()`. |
+
+Vị trí (app-specific external storage, **không cần quyền**):
+```
+/sdcard/Android/data/com.example.faceidentity/files/logs/
+```
+Kéo về PC:
+```powershell
+adb pull /sdcard/Android/data/com.example.faceidentity/files/logs
+```
+(Đường dẫn chính xác được in trong Logcat lúc mở app: `File log lỗi/crash: ...`)
+
+### 12.3. Landmark (5 điểm/mặt)
+Overlay vẽ landmark theo màu quy ước YuNet — tiện kiểm tra model trả đúng thứ tự điểm:
+
+| Điểm | Màu |
+|---|---|
+| Mắt phải | 🔵 xanh dương |
+| Mắt trái | 🔴 đỏ |
+| Mũi | 🟢 xanh lá |
+| Mép miệng phải | 🟣 hồng |
+| Mép miệng trái | 🟡 vàng |
+
+Model không có landmark → chỉ vẽ bounding box (tự phát hiện qua `DetectionResult.landmarks == null`).

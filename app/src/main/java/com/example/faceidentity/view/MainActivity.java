@@ -22,6 +22,7 @@ import com.example.faceidentity.controller.CameraController;
 import com.example.faceidentity.controller.FaceDetectionController;
 import com.example.faceidentity.model.DetectorFactory;
 import com.example.faceidentity.model.FaceDetector;
+import com.example.faceidentity.model.ModelConfig;
 import com.example.faceidentity.utils.CrashLogger;
 import com.example.faceidentity.utils.FileUtils;
 import com.example.faceidentity.utils.PermissionUtils;
@@ -31,6 +32,8 @@ import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.Scalar;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,10 +44,7 @@ public class MainActivity extends AppCompatActivity
 
     private static final String TAG = "MainActivity";
 
-    // Multi-model: mọi file model trong assets/models được liệt kê lúc mở app.
-    // NHẤN GIỮ nút đổi cam để chuyển model. Backend chọn theo tên file (DetectorFactory):
-    //   *.onnx có "yunet" -> FaceDetectorYN | *.onnx khác -> RFB (OpenCV DNN)
-    //   *.tflite -> TensorFlow Lite         | *.param -> ncnn (chưa tích hợp JNI)
+    // Nhấn giữ nút đổi cam để chuyển model. Backend chọn theo tên file (DetectorFactory).
     private static final String MODELS_DIR = "models";
     private static final String DEFAULT_MODEL = "RFB-landmark-Epoch-149-Loss-30.2965.onnx";
 
@@ -304,11 +304,11 @@ public class MainActivity extends AppCompatActivity
         String fileName = modelList[modelIndex];
         try {
             String modelPath = FileUtils.copyAssetToInternal(this, MODELS_DIR + "/" + fileName);
-            faceDetector = DetectorFactory.create(fileName, modelPath);
+            ModelConfig cfg = readConfig(fileName);
+            faceDetector = DetectorFactory.create(fileName, modelPath, cfg);
             faceDetector.init();
 
-            // SMOKE TEST: detect thử ảnh giả NGAY LÚC LOAD (main thread, có catch).
-            // Model sai kiến trúc lộ ở đây thay vì nổ trên analysis thread lúc START.
+            // Smoke test: detect thử ảnh giả ngay lúc load (main thread, có catch).
             smokeTest(faceDetector);
 
             detectionController = new FaceDetectionController(faceDetector, this);
@@ -332,7 +332,27 @@ public class MainActivity extends AppCompatActivity
         }
     }
 
-    /** Detect thử 1 ảnh đen 320x240 để xác nhận model chạy được với backend đã chọn. */
+    /** Đọc file cấu hình <tên-model-không-đuôi>.json trong assets/models. Không có -> đoán theo tên. */
+    private ModelConfig readConfig(String modelFile) {
+        int dot = modelFile.lastIndexOf('.');
+        String base = (dot > 0) ? modelFile.substring(0, dot) : modelFile;
+        String cfgAsset = MODELS_DIR + "/" + base + ".json";
+        try (InputStream is = getAssets().open(cfgAsset)) {
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
+            ModelConfig c = ModelConfig.fromJson(bos.toString("UTF-8"));
+            Log.i(TAG, "Config: " + cfgAsset);
+            return c;
+        } catch (java.io.FileNotFoundException e) {
+            return ModelConfig.defaultFor(modelFile);
+        } catch (Exception e) {
+            CrashLogger.logError(TAG, "Đọc config lỗi: " + cfgAsset, e);
+            return ModelConfig.defaultFor(modelFile);
+        }
+    }
+
     private static void smokeTest(FaceDetector d) {
         Mat dummy = new Mat(240, 320, CvType.CV_8UC3, new Scalar(0, 0, 0));
         try {

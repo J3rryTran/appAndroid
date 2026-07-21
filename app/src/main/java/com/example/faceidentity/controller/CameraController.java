@@ -17,6 +17,7 @@ import androidx.camera.view.PreviewView;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
 
+import com.example.faceidentity.utils.CrashLogger;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.concurrent.ExecutorService;
@@ -77,7 +78,7 @@ public class CameraController {
                 cameraProvider = future.get();
                 bindUseCases();
             } catch (Exception e) {
-                Log.e(TAG, "Không khởi tạo được CameraX", e);
+                CrashLogger.logError(TAG, "Không khởi tạo được CameraX", e);
             }
         }, ContextCompat.getMainExecutor(context));
     }

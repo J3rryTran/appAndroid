@@ -20,25 +20,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-/**
- * [MODEL] Backend TensorFlow Lite cho model face-detect kiểu RFB/Ultra-Light
- * (scores [1,N,2] + boxes [1,N,4] corner-form chuẩn hoá, tuỳ chọn landmarks [1,N,10]).
- *
- * - Input size đọc TỰ ĐỘNG từ tensor input ([1,H,W,3] float32).
- * - Output nhận diện theo SỐ KÊNH CUỐI, không phụ thuộc thứ tự tensor.
- * - Tiền xử lý: (pixel - 127) / 128, RGB.
- *
- * Model TFLite kiểu khác (BlazeFace, SSD-anchor thô...) cần decoder riêng - xem README.
- */
 public class TfliteRfbDetector implements FaceDetector {
 
     private static final String TAG = "TfliteRfbDetector";
 
-    private static final float SCORE_THRESHOLD = 0.7f;
-    private static final float NMS_THRESHOLD   = 0.3f;
-
     private final String modelPath;
+    private final ModelConfig cfg;
     private Interpreter interpreter;
 
     private int inW = 320;
@@ -56,8 +43,9 @@ public class TfliteRfbDetector implements FaceDetector {
     private float[][][] boxesOut;
     private float[][][] landsOut;
 
-    public TfliteRfbDetector(String modelPath) {
+    public TfliteRfbDetector(String modelPath, ModelConfig cfg) {
         this.modelPath = modelPath;
+        this.cfg = cfg;
     }
 
     @Override
@@ -105,31 +93,30 @@ public class TfliteRfbDetector implements FaceDetector {
         final int W = bgr.cols();
         final int H = bgr.rows();
 
-        // 1) Resize + chuẩn hoá (x-127)/128 + BGR->RGB, ghi vào ByteBuffer tái sử dụng
         Imgproc.resize(bgr, resized, new Size(inW, inH));
         resized.get(0, 0, pixelBuf);
         inputBuf.rewind();
+        float sc = (float) cfg.scale;
+        float m0 = (float) cfg.mean[0], m1 = (float) cfg.mean[1], m2 = (float) cfg.mean[2];
         for (int i = 0; i < pixelBuf.length; i += 3) {
-            inputBuf.putFloat(((pixelBuf[i + 2] & 0xFF) - 127) / 128f);  // R
-            inputBuf.putFloat(((pixelBuf[i + 1] & 0xFF) - 127) / 128f);  // G
-            inputBuf.putFloat(((pixelBuf[i]     & 0xFF) - 127) / 128f);  // B
+            inputBuf.putFloat(((pixelBuf[i + 2] & 0xFF) - m0) * sc);  // R
+            inputBuf.putFloat(((pixelBuf[i + 1] & 0xFF) - m1) * sc);  // G
+            inputBuf.putFloat(((pixelBuf[i]     & 0xFF) - m2) * sc);  // B
         }
         inputBuf.rewind();
 
-        // 2) Chạy inference
         Map<Integer, Object> outs = new HashMap<>();
         outs.put(scoreIdx, scoresOut);
         outs.put(boxIdx, boxesOut);
         if (landIdx >= 0) outs.put(landIdx, landsOut);
         interpreter.runForMultipleInputsOutputs(new Object[]{inputBuf}, outs);
 
-        // 3) Lọc theo score
         List<Rect2d> candRects = new ArrayList<>();
         List<Float> candScores = new ArrayList<>();
         List<Integer> candIdx = new ArrayList<>();
         for (int i = 0; i < numAnchors; i++) {
             float s = scoresOut[0][i][1];
-            if (s < SCORE_THRESHOLD) continue;
+            if (s < cfg.scoreThreshold) continue;
             float x1 = clamp(boxesOut[0][i][0] * W, 0, W - 1);
             float y1 = clamp(boxesOut[0][i][1] * H, 0, H - 1);
             float x2 = clamp(boxesOut[0][i][2] * W, 0, W - 1);
@@ -141,13 +128,12 @@ public class TfliteRfbDetector implements FaceDetector {
         }
         if (candRects.isEmpty()) return DetectionResult.EMPTY;
 
-        // 4) NMS bằng OpenCV
         MatOfRect2d rectsMat = new MatOfRect2d();
         rectsMat.fromList(candRects);
         MatOfFloat scoresMat = new MatOfFloat();
         scoresMat.fromList(candScores);
         MatOfInt keep = new MatOfInt();
-        Dnn.NMSBoxes(rectsMat, scoresMat, SCORE_THRESHOLD, NMS_THRESHOLD, keep);
+        Dnn.NMSBoxes(rectsMat, scoresMat, cfg.scoreThreshold, cfg.nmsThreshold, keep);
 
         int[] keepIdx = keep.rows() > 0 ? keep.toArray() : new int[0];
         rectsMat.release();
@@ -155,7 +141,6 @@ public class TfliteRfbDetector implements FaceDetector {
         keep.release();
         if (keepIdx.length == 0) return DetectionResult.EMPTY;
 
-        // 5) Đóng gói
         float[] outBoxes = new float[keepIdx.length * 4];
         float[] outScores = new float[keepIdx.length];
         float[] outLands = (landIdx >= 0) ? new float[keepIdx.length * 10] : null;

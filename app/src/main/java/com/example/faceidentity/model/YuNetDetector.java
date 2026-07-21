@@ -6,16 +6,9 @@ import org.opencv.core.Mat;
 import org.opencv.core.Size;
 import org.opencv.objdetect.FaceDetectorYN;
 
-/**
- * [MODEL] Backend YuNet qua FaceDetectorYN (chỉ chạy model YuNet chuẩn OpenCV Zoo).
- *
- * Output gốc: Mat [n x 15] = x,y,w,h + 5 landmark (10 giá trị) + score.
- */
 public class YuNetDetector implements FaceDetector {
 
     private static final String TAG = "YuNetDetector";
-
-    // Ngưỡng mặc định hợp với YuNet.
     private static final float SCORE_THRESHOLD = 0.9f;
     private static final float NMS_THRESHOLD   = 0.3f;
     private static final int   TOP_K           = 5000;
@@ -26,7 +19,6 @@ public class YuNetDetector implements FaceDetector {
     private int inW = 0;
     private int inH = 0;
 
-    // Tái sử dụng
     private final Mat faces = new Mat();
     private final float[] rowBuf = new float[15];
 
@@ -68,7 +60,7 @@ public class YuNetDetector implements FaceDetector {
         float[] scores = new float[n];
         float[] lands = new float[n * 10];
         for (int i = 0; i < n; i++) {
-            faces.get(i, 0, rowBuf);            // đọc cả hàng 15 giá trị
+            faces.get(i, 0, rowBuf);
             boxes[i * 4]     = rowBuf[0];
             boxes[i * 4 + 1] = rowBuf[1];
             boxes[i * 4 + 2] = rowBuf[2];

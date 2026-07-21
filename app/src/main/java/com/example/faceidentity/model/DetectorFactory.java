@@ -2,45 +2,36 @@ package com.example.faceidentity.model;
 
 import java.util.Locale;
 
-/**
- * [MODEL] Chọn backend detector theo TÊN FILE model:
- *
- *  - *.onnx  chứa "yunet"  -> YuNetDetector   (FaceDetectorYN, chuẩn OpenCV Zoo)
- *  - *.onnx  còn lại       -> RfbOnnxDetector (OpenCV DNN, decode RFB/Ultra-Light)
- *  - *.tflite              -> TfliteRfbDetector (TensorFlow Lite, decode RFB-style)
- *  - *.param / *.bin       -> NcnnDetector    (stub - cần tích hợp JNI, xem README)
- *
- * QUY ƯỚC ĐẶT TÊN: model YuNet phải có chữ "yunet" trong tên file.
- */
 public final class DetectorFactory {
 
     private DetectorFactory() { }
 
-    /**
-     * @param fileName  tên file trong assets/models (để đoán backend)
-     * @param localPath đường dẫn tuyệt đối sau khi copy ra internal storage
-     */
-    public static FaceDetector create(String fileName, String localPath) {
+    public static FaceDetector create(String fileName, String localPath, ModelConfig cfg) {
         String lower = fileName.toLowerCase(Locale.US);
+        if (cfg == null) cfg = ModelConfig.defaultFor(fileName);
 
         if (lower.endsWith(".onnx")) {
-            return lower.contains("yunet")
-                    ? new YuNetDetector(localPath)
-                    : new RfbOnnxDetector(localPath);
+            if ("yunet".equals(cfg.backend)) return new YuNetDetector(localPath);
+            return new GenericOnnxDetector(localPath, cfg);
         }
         if (lower.endsWith(".tflite")) {
-            return new TfliteRfbDetector(localPath);
+            return new TfliteRfbDetector(localPath, cfg);
         }
         if (lower.endsWith(".param") || lower.endsWith(".bin")) {
             return new NcnnDetector(localPath);
         }
+        if (lower.endsWith(".pt") || lower.endsWith(".pth")) {
+            throw new UnsupportedOperationException(
+                    "Checkpoint PyTorch (.pt) không chạy được trên Android.\n"
+                            + "Export sang ONNX trong môi trường đã train:\n"
+                            + "yolo export model=" + fileName + " format=onnx imgsz=640");
+        }
         throw new IllegalArgumentException("Định dạng model không hỗ trợ: " + fileName);
     }
 
-    /** File có phải định dạng model mà app nhận không (để liệt kê từ assets). */
     public static boolean isSupportedFile(String fileName) {
         String lower = fileName.toLowerCase(Locale.US);
         return lower.endsWith(".onnx") || lower.endsWith(".tflite")
-                || lower.endsWith(".param");
+                || lower.endsWith(".param") || lower.endsWith(".pt") || lower.endsWith(".pth");
     }
 }

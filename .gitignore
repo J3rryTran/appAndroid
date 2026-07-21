@@ -2,3 +2,4 @@
 .idea/
 OpenCV-android-sdk/
 app/src/main/assets/models
+app/build

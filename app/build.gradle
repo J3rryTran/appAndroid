@@ -40,9 +40,10 @@ android {
         targetCompatibility JavaVersion.VERSION_11
     }
 
-    // Không nén file model .onnx trong assets -> đọc/copy nhanh, tránh giới hạn nén.
+    // Không nén file model trong assets -> đọc/copy nhanh, tránh giới hạn nén.
     aaptOptions {
         noCompress "onnx"
+        noCompress "tflite"
     }
 }
 
@@ -62,4 +63,7 @@ dependencies {
     // ---------------- OpenCV ----------------
     // Module ':opencv' = OpenCV-android-sdk/sdk (đã khai báo trong settings.gradle).
     implementation project(':opencv')
+
+    // ---------------- TensorFlow Lite (backend cho model .tflite) ----------------
+    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
 }
