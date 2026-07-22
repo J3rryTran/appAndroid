@@ -1,5 +1,3 @@
-# Soi input/output shape + op_types của file ONNX mà KHÔNG cần cài onnx/onnxruntime.
-# Dùng: python -X utf8 tools/onnx_inspect.py <path.onnx>
 import sys, collections
 
 data = open(sys.argv[1], "rb").read()
