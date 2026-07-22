@@ -1,5 +1,4 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Theme không có ActionBar để camera full màn hình -->
     <style name="Theme.FaceIdentity" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="android:statusBarColor" tools:targetApi="l">@color/black</item>
         <item name="android:navigationBarColor">@color/black</item>

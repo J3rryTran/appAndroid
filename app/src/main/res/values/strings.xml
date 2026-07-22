@@ -2,19 +2,11 @@
     <string name="app_name">Face Identity Detection</string>
     <string name="fps">FPS: %.1f</string>
     <string name="face_count">Số khuôn mặt: %d</string>
-
-    <!-- Dùng làm contentDescription cho nút icon (hỗ trợ TalkBack) -->
     <string name="start">Bắt đầu</string>
     <string name="stop">Dừng</string>
     <string name="switch_camera">Đổi camera</string>
-
-    <!-- Gợi ý xoay ngang: hiển thị bằng ICON, string chỉ dùng cho contentDescription/Toast -->
     <string name="hint_rotate">Hãy xoay ngang màn hình để bật nút bắt đầu</string>
-
-    <!-- Toast báo camera đang dùng sau khi đổi -->
     <string name="cam_front">Camera trước</string>
     <string name="cam_back">Camera sau</string>
-
-    <!-- Nhãn model đang dùng (nhấn giữ nút đổi cam để chuyển model) -->
     <string name="model_label">Model: %s</string>
 </resources>

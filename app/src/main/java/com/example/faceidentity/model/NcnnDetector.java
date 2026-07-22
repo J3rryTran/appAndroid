@@ -17,8 +17,8 @@ public class NcnnDetector implements FaceDetector {
     @Override
     public void init() {
         throw new UnsupportedOperationException(
-                "ncnn chưa được tích hợp: cần JNI/C++ + ncnn-android prebuilt "
-                        + "+ cặp file .param/.bin (xem README mục ncnn). File: " + modelPath);
+                "ncnn have not native: require JNI/C++ + ncnn-android prebuilt "
+                        + "+ and file .param/.bin. File: " + modelPath);
     }
 
     @Override
@@ -28,6 +28,6 @@ public class NcnnDetector implements FaceDetector {
 
     @Override
     public void release() {
-        // chưa có gì để giải phóng
+        return release;
     }
 }

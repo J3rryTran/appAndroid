@@ -18,9 +18,5 @@ rootProject.name = "FaceIdentityDetection"
 
 include ':app'
 
-// =========================================================================
-// OpenCV Android SDK (module) — đã có sẵn trong project tại OpenCV-android-sdk/
-// Trỏ module ':opencv' vào thư mục 'sdk' của SDK (không copy, dùng trực tiếp).
-// =========================================================================
 include ':opencv'
 project(':opencv').projectDir = new File(rootDir, 'OpenCV-android-sdk/sdk')

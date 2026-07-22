@@ -29,13 +29,12 @@ public class TfliteRfbDetector implements FaceDetector {
     private Interpreter interpreter;
 
     private int inW = 320;
-    private int inH = 240;
+    private int inH = 320;
     private int scoreIdx = -1;
     private int boxIdx = -1;
     private int landIdx = -1;
     private int numAnchors = 0;
 
-    // Tái sử dụng giữa các frame
     private ByteBuffer inputBuf;
     private byte[] pixelBuf;
     private final Mat resized = new Mat();
@@ -57,14 +56,14 @@ public class TfliteRfbDetector implements FaceDetector {
     public void init() {
         interpreter = new Interpreter(new File(modelPath));
 
-        int[] ishape = interpreter.getInputTensor(0).shape();   // kỳ vọng [1,H,W,3]
+        int[] ishape = interpreter.getInputTensor(0).shape();
         if (ishape.length == 4) {
             inH = ishape[1];
             inW = ishape[2];
         }
 
         for (int i = 0; i < interpreter.getOutputTensorCount(); i++) {
-            int[] s = interpreter.getOutputTensor(i).shape();    // kỳ vọng [1,N,C]
+            int[] s = interpreter.getOutputTensor(i).shape();
             int c = s[s.length - 1];
             int nn = (s.length >= 2) ? s[s.length - 2] : 0;
             if (c == 2) { scoreIdx = i; numAnchors = nn; }

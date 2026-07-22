@@ -22,9 +22,9 @@ public final class DetectorFactory {
         }
         if (lower.endsWith(".pt") || lower.endsWith(".pth")) {
             throw new UnsupportedOperationException(
-                    "Checkpoint PyTorch (.pt) không chạy được trên Android.\n"
-                            + "Export sang ONNX trong môi trường đã train:\n"
-                            + "yolo export model=" + fileName + " format=onnx imgsz=640");
+                    "Checkpoint PyTorch (.pt) cannot running on Android.\n"
+                            + "Export model to ONNX or tflite:\n"
+                            + "export model=" + fileName + " format=onnx imgsz=320");
         }
         throw new IllegalArgumentException("Định dạng model không hỗ trợ: " + fileName);
     }

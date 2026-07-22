@@ -5,7 +5,6 @@
     <color name="overlay_bg">#99000000</color>
     <color name="green">#FF00E676</color>
 
-    <!-- Nút icon tròn -->
     <color name="btn_bg">#B3000000</color>
     <color name="btn_stroke">#66FFFFFF</color>
 </resources>

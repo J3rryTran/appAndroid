@@ -1,36 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    Cửa sổ KHOÁ DỌC (xem AndroidManifest) => layout này không bao giờ xoay.
-    Nhờ vậy nút/thông tin tự động đứng yên trên thân máy; chỉ ICON được xoay mượt
-    bằng animation trong MainActivity theo cảm biến.
--->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/black">
-
-    <!-- Camera preview (CameraX). Giữ hệ toạ độ cửa sổ, không xoay theo cảm biến. -->
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:scaleType="fitCenter" />
-
-    <!--
-        Overlay vẽ bounding box.
-        MainActivity.applyOverlayRotation() sẽ đặt kích thước (hoán đổi w/h khi máy
-        nằm ngang) + setRotation(-deviceDegrees) để hệ toạ độ của overlay TRÙNG với
-        hệ toạ độ ảnh phân tích (đã xoay thẳng đứng theo trọng lực).
-    -->
     <com.example.faceidentity.view.CameraPreview
         android:id="@+id/overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_gravity="center" />
-
-    <!-- Bảng thông tin FPS + số khuôn mặt -->
     <LinearLayout
         android:id="@+id/infoPanel"
         android:layout_width="wrap_content"
@@ -59,8 +43,6 @@
             android:textColor="@color/white"
             android:textSize="16sp"
             android:textStyle="bold" />
-
-        <!-- Model đang dùng (nhấn giữ nút đổi cam để chuyển model) -->
         <TextView
             android:id="@+id/tvModel"
             android:layout_width="wrap_content"
@@ -70,8 +52,6 @@
             android:textColor="@color/white"
             android:textSize="11sp" />
     </LinearLayout>
-
-    <!-- Gợi ý xoay ngang: CHỈ icon, hiện khi máy chưa nằm ngang -->
     <ImageView
         android:id="@+id/ivHint"
         android:layout_width="96dp"
@@ -82,11 +62,6 @@
         android:padding="22dp"
         android:scaleType="fitCenter"
         android:src="@drawable/ic_screen_rotate" />
-
-    <!--
-        Hàng nút: cửa sổ không xoay nên nút luôn nằm đúng cạnh này trên thân máy.
-        Kích thước CỐ ĐỊNH 64dp -> không co, không xuống dòng.
-    -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

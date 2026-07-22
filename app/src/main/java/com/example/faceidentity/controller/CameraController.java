@@ -47,7 +47,7 @@ public class CameraController {
 
     private int lensFacing = CameraSelector.LENS_FACING_FRONT;
     private int targetRotation = Surface.ROTATION_0;
-    private final Size targetAnalysisSize = new Size(640, 480);
+    private final Size targetAnalysisSize = new Size(320, 320);
 
     public CameraController(Context context, LifecycleOwner owner,
                             PreviewView previewView, FrameListener listener) {

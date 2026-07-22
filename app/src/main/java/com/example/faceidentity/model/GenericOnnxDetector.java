@@ -14,14 +14,6 @@ import org.opencv.dnn.Net;
 
 import java.util.ArrayList;
 import java.util.List;
-
-/**
- * ONNX detector cấu hình bằng ModelConfig. Tự nhận diện dạng output:
- *  - YOLO e2e (YOLO26/v10):    [1, N<=1000, 6] = x1,y1,x2,y2,score,cls (pixel)
- *  - YOLO v5-style:            [1, N>1000, 6]  = cx,cy,w,h,obj,cls (pixel)
- *  - YOLO raw (v8/26 no-e2e):  [1, C, N] channels-first, C=4+nc (pixel)
- *  - Tách kênh (RFB...):       score(1|2) + box(4) + landmark(10) theo cfg
- */
 public class GenericOnnxDetector implements FaceDetector {
 
     private static final String TAG = "GenericOnnx";
@@ -148,13 +140,13 @@ public class GenericOnnxDetector implements FaceDetector {
                 p.pixel = true;
                 p.boxes = new float[d1 * 4];
                 p.scores = new float[d1];
-                if (d1 <= 1000) {              // YOLO26/v10 e2e: xyxy,score,cls
+                if (d1 <= 1000) {
                     p.center = false;
                     for (int i = 0; i < d1; i++) {
                         System.arraycopy(buf, i * 6, p.boxes, i * 4, 4);
                         p.scores[i] = buf[i * 6 + 4];
                     }
-                } else {                        // v5-style: cxcywh,obj,cls
+                } else {
                     p.center = true;
                     for (int i = 0; i < d1; i++) {
                         System.arraycopy(buf, i * 6, p.boxes, i * 4, 4);
@@ -164,7 +156,7 @@ public class GenericOnnxDetector implements FaceDetector {
                 return p;
             }
 
-            if (d1 >= 5 && d1 <= 200 && d2 > d1 * 8) {   // raw [1,C,N] channels-first
+            if (d1 >= 5 && d1 <= 200 && d2 > d1 * 8) {
                 float[] buf = new float[d1 * d2];
                 o.get(new int[]{0, 0, 0}, buf);
                 Parsed p = new Parsed();
@@ -189,7 +181,6 @@ public class GenericOnnxDetector implements FaceDetector {
             }
         }
 
-        // Tách kênh: score(1|2) + box(4) + landmark(10)
         final int scoreCh = "sigmoid1".equals(cfg.score) ? 1 : 2;
         Parsed p = new Parsed();
         p.center = "center".equals(cfg.box);

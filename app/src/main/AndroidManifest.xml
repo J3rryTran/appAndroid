@@ -1,14 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Quyền camera -->
     <uses-permission android:name="android.permission.CAMERA" />
-
-    <!-- Yêu cầu thiết bị có camera (bất kỳ), nhưng không bắt buộc để cài trên emulator -->
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="false" />
-
     <application
         android:name=".FaceApp"
         android:allowBackup="true"
@@ -17,18 +13,6 @@
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.FaceIdentity">
-
-        <!--
-            screenOrientation="portrait": KHOÁ cửa sổ - không bao giờ xoay.
-              Đây là mô hình của các app camera hệ thống:
-                - Không có animation xoay cửa sổ -> mượt tuyệt đối.
-                - Preview vẫn đúng chiều thực tế vì camera và màn hình xoay CÙNG NHAU
-                  (ảnh trong hệ toạ độ cửa sổ xoay ngược đúng bằng góc máy xoay).
-                - Nút/thông tin tự động ĐỨNG YÊN trên thân máy (cửa sổ không xoay).
-                - Chỉ ICON được xoay mượt bằng animation theo cảm biến.
-              Hướng máy được đọc từ OrientationEventListener (hoạt động kể cả khi hệ
-              thống TẮT auto-rotate), xem MainActivity.
-        -->
         <activity
             android:name=".view.MainActivity"
             android:exported="true"
