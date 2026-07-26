@@ -1,0 +1,13 @@
+{
+  "backend": "onnx",
+  "input": [320, 320],
+  "mean": [0, 0, 0],
+  "scale": 0.00392156862745098,
+  "swapRB": true,
+  "box": "corner",
+  "normalized": true,
+  "score": "sigmoid1",
+  "letterbox": true,
+  "scoreThreshold": 0.25,
+  "nmsThreshold": 0.45
+}

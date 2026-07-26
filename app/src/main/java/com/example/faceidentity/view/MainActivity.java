@@ -46,7 +46,8 @@ public class MainActivity extends AppCompatActivity
 
     // Nhấn giữ nút đổi cam để chuyển model. Backend chọn theo tên file (DetectorFactory).
     private static final String MODELS_DIR = "models";
-    private static final String DEFAULT_MODEL = "RFB-landmark-Epoch-149-Loss-30.2965.onnx";
+    private static final String CFG_DIR = "cfg";
+    private static final String DEFAULT_MODEL = "face_detection_yunet_2023mar.onnx";
 
     private static final long ICON_ROTATE_MS = 250L;
 
@@ -333,25 +334,29 @@ public class MainActivity extends AppCompatActivity
         }
     }
 
-    /** Đọc file cấu hình <tên-model-không-đuôi>.json trong assets/models. Không có -> đoán theo tên. */
+    /** Đọc <tên-model-không-đuôi>.json trong assets/cfg (fallback assets/models). Không có -> đoán theo tên. */
     private ModelConfig readConfig(String modelFile) {
         int dot = modelFile.lastIndexOf('.');
         String base = (dot > 0) ? modelFile.substring(0, dot) : modelFile;
-        String cfgAsset = MODELS_DIR + "/" + base + ".json";
-        try (InputStream is = getAssets().open(cfgAsset)) {
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
-            ModelConfig c = ModelConfig.fromJson(bos.toString("UTF-8"));
-            Log.i(TAG, "Config: " + cfgAsset);
-            return c;
-        } catch (java.io.FileNotFoundException e) {
-            return ModelConfig.defaultFor(modelFile);
-        } catch (Exception e) {
-            CrashLogger.logError(TAG, "Đọc config lỗi: " + cfgAsset, e);
-            return ModelConfig.defaultFor(modelFile);
+        for (String dir : new String[]{CFG_DIR, MODELS_DIR}) {
+            String cfgAsset = dir + "/" + base + ".json";
+            try (InputStream is = getAssets().open(cfgAsset)) {
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
+                ModelConfig c = ModelConfig.fromJson(bos.toString("UTF-8"));
+                Log.i(TAG, "Config: " + cfgAsset);
+                return c;
+            } catch (java.io.FileNotFoundException e) {
+                // thử thư mục kế tiếp
+            } catch (Exception e) {
+                CrashLogger.logError(TAG, "Đọc config lỗi: " + cfgAsset, e);
+                return ModelConfig.defaultFor(modelFile);
+            }
         }
+        Log.w(TAG, "Không có config cho " + modelFile + " -> dùng mặc định");
+        return ModelConfig.defaultFor(modelFile);
     }
 
     private static void smokeTest(FaceDetector d) {

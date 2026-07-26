@@ -15,7 +15,7 @@ public final class DetectorFactory {
             return new GenericOnnxDetector(localPath, cfg);
         }
         if (lower.endsWith(".tflite")) {
-            return new TfliteRfbDetector(localPath, cfg);
+            return new TfliteDetector(localPath, cfg);
         }
         if (lower.endsWith(".param") || lower.endsWith(".bin")) {
             return new NcnnDetector(localPath);
