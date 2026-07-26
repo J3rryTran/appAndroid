@@ -26,10 +26,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/**
- * TFLite runtime (XNNPACK, đa luồng). Nhận diện output như GenericOnnxDetector:
- * e2e [1,N<=1000,6+k] / v5 [1,N,6] / raw [1,C,N] / tách kênh RFB (2|1 + 4 + 10).
- */
 public class TfliteDetector implements FaceDetector {
 
     private static final String TAG = "TfliteDetector";

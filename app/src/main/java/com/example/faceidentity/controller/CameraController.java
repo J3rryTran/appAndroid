@@ -87,7 +87,7 @@ public class CameraController {
                 cameraProvider = future.get();
                 bindUseCases();
             } catch (Exception e) {
-                CrashLogger.logError(TAG, "Không khởi tạo được CameraX", e);
+                CrashLogger.logError(TAG, "Cannot create CameraX", e);
             }
         }, ContextCompat.getMainExecutor(context));
     }
@@ -97,7 +97,7 @@ public class CameraController {
         bindUseCases();
     }
     public void updateTargetRotation(int surfaceRotation) {
-        if (targetRotation == surfaceRotation) return;   // tránh gọi thừa
+        if (targetRotation == surfaceRotation) return;
         targetRotation = surfaceRotation;
         if (imageAnalysis != null) imageAnalysis.setTargetRotation(surfaceRotation);
     }
@@ -112,16 +112,15 @@ public class CameraController {
             int other = isFront() ? CameraSelector.LENS_FACING_BACK
                                   : CameraSelector.LENS_FACING_FRONT;
             if (!hasCamera(other)) {
-                Log.e(TAG, "Thiết bị không có camera khả dụng");
+                Log.e(TAG, "Error device cammera");
                 return;
             }
-            Log.w(TAG, "Thiếu camera yêu cầu -> chuyển sang camera còn lại");
+            Log.w(TAG, "Missing require -> Change to other cammera");
             lensFacing = other;
         }
 
         cameraProvider.unbindAll();
 
-        // Khoá sàn FPS (AE không được tụt xuống 15fps lúc thiếu sáng -> preview hết "trễ nhẹ")
         Preview.Builder previewBuilder = new Preview.Builder();
         Range<Integer> fpsRange = pickFpsRange();
         if (fpsRange != null) {
@@ -182,7 +181,6 @@ public class CameraController {
         }
     }
 
-    // Thread phân tích chạy priority thấp -> nhường CPU cho camera/hiển thị
     private static ExecutorService newAnalysisExecutor() {
         return Executors.newSingleThreadExecutor(r -> new Thread(() -> {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);

@@ -7,18 +7,18 @@ import java.util.Locale;
 
 public class ModelConfig {
 
-    public String backend = "onnx";        // "onnx" | "yunet"
+    public String backend = "onnx";
     public int inputW = 640, inputH = 640;
-    public double[] mean = {127, 127, 127}; // thứ tự kênh như truyền cho blobFromImage
+    public double[] mean = {127, 127, 127};
     public double scale = 1.0 / 128.0;
-    public boolean swapRB = true;           // model RGB -> true (OpenCV đọc BGR)
-    public String box = "corner";           // "corner" (x1,y1,x2,y2) | "center" (cx,cy,w,h)
-    public boolean normalized = true;       // box/landmark 0..1 -> true; pixel theo input -> false
-    public String score = "softmax2";       // "softmax2" (lấy kênh 1) | "sigmoid1"
-    public boolean letterbox = false;       // true: resize giữ tỉ lệ + pad 114 (chuẩn YOLO)
-    public String[] outputs = null;         // ép forward tới các blob này (bỏ qua đầu e2e lỗi)
-    public float scoreScale = 1f;           // nhân vào score thô (cứu model int8 sai scale)
-    public float boxScale = 1f;             // co/giãn box quanh tâm (calibration box lỏng)
+    public boolean swapRB = true;
+    public String box = "corner";
+    public boolean normalized = true;
+    public String score = "softmax2";
+    public boolean letterbox = false;
+    public String[] outputs = null;
+    public float scoreScale = 1f;
+    public float boxScale = 1f;
     public float scoreThreshold = 0.7f;
     public float nmsThreshold = 0.3f;
 
@@ -57,7 +57,6 @@ public class ModelConfig {
         return c;
     }
 
-    /** Không có JSON -> đoán backend theo tên file. */
     public static ModelConfig defaultFor(String fileName) {
         ModelConfig c = new ModelConfig();
         if (fileName.toLowerCase(Locale.US).contains("yunet")) c.backend = "yunet";

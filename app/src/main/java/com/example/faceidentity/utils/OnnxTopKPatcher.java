@@ -10,13 +10,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-/**
- * Vá lỗi OpenCV DNN "TopK: K is out of range" cho ONNX YOLO e2e (YOLO26/v10).
- * OpenCV đòi K < N, ONNX cho phép K <= N. Với 1 class, TopK cuối luôn có K == N
- * và hai node TopK dùng chung một hằng K -> phải nhân bản hằng số rồi trỏ riêng.
- * Thao tác trên bản copy trong internal storage, assets giữ nguyên.
- */
 public final class OnnxTopKPatcher {
 
     private static final String TAG = "OnnxTopKPatcher";
@@ -28,7 +21,6 @@ public final class OnnxTopKPatcher {
         return m != null && m.contains("TopK") && m.contains("out of range");
     }
 
-    /** @return true nếu file đã được vá (gọi lại readNetFromONNX sau đó). */
     public static boolean patch(String path) {
         try {
             File f = new File(path);
@@ -43,7 +35,7 @@ public final class OnnxTopKPatcher {
 
             List<int[]> kSpans = new ArrayList<>();
             List<String> kNames = new ArrayList<>();
-            Map<String, int[]> entries = new HashMap<>();   // name -> {payloadStart, payloadEnd, valueOff}
+            Map<String, int[]> entries = new HashMap<>();
 
             Cursor g = new Cursor(d, gs, ge);
             while (g.next()) {
@@ -89,8 +81,6 @@ public final class OnnxTopKPatcher {
                 Log.i(TAG, "Đã vá K " + k + " -> " + (k - 1) + " cho TopK cuối");
                 return true;
             }
-
-            // K dùng chung -> nhân bản initializer (tên cùng độ dài) rồi trỏ TopK cuối sang
             char lc = lastName.charAt(lastName.length() - 1);
             char nc = (lc == '9') ? '8' : '9';
             String newName = lastName.substring(0, lastName.length() - 1) + nc;
@@ -112,11 +102,11 @@ public final class OnnxTopKPatcher {
             if (!okName || !okVal) return false;
 
             int[] sp = kSpans.get(last);
-            d[sp[1] - 1] = (byte) nc;                       // đổi tên K-input của TopK cuối
+            d[sp[1] - 1] = (byte) nc;
 
             byte[] lenNew = varint(payload.length);
             byte[] appended = new byte[1 + lenNew.length + payload.length];
-            appended[0] = 0x2a;                              // field 5 (initializer), wire 2
+            appended[0] = 0x2a;
             System.arraycopy(lenNew, 0, appended, 1, lenNew.length);
             System.arraycopy(payload, 0, appended, 1 + lenNew.length, payload.length);
 

@@ -22,13 +22,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * ONNX detector cấu hình bằng ModelConfig. Tự nhận diện dạng output:
- *  - YOLO e2e (YOLO26/v10):    [1, N<=1000, 6+k] = x1,y1,x2,y2,score,cls[,5kpt×(2|3)] (pixel)
- *  - YOLO v5-style:            [1, N>1000, 6]    = cx,cy,w,h,obj,cls (pixel)
- *  - YOLO raw (v8/26 no-e2e):  [1, C, N] channels-first, C=4+nc (pixel)
- *  - Tách kênh (RFB...):       score(1|2) + box(4) + landmark(10) theo cfg
- */
 public class GenericOnnxDetector implements FaceDetector {
 
     private static final String TAG = "GenericOnnx";
@@ -182,7 +175,6 @@ public class GenericOnnxDetector implements FaceDetector {
         return new DetectionResult(ob, os, ol);
     }
 
-    /** Tên trong cfg.outputs là tên tensor ONNX; OpenCV 4.12 đặt tên layer "onnx_node!<node>". */
     private List<String> resolveLayers(String[] wanted) {
         List<String> all = net.getLayerNames();
         List<String> resolved = new ArrayList<>();
@@ -204,7 +196,6 @@ public class GenericOnnxDetector implements FaceDetector {
         return resolved;
     }
 
-    /** Resize giữ tỉ lệ + pad 114 (chuẩn Ultralytics). */
     private Mat letterbox(Mat bgr) {
         final int W = bgr.cols(), H = bgr.rows();
         float r = Math.min((float) cfg.inputW / W, (float) cfg.inputH / H);
@@ -283,7 +274,7 @@ public class GenericOnnxDetector implements FaceDetector {
                 return p;
             }
 
-            if (d2 == 6 && d1 > 1000) {                 // v5-style: cxcywh,obj,cls
+            if (d2 == 6 && d1 > 1000) {
                 float[] buf = new float[d1 * 6];
                 o.get(new int[]{0, 0, 0}, buf);
                 Parsed p = new Parsed();
@@ -301,16 +292,15 @@ public class GenericOnnxDetector implements FaceDetector {
                 return p;
             }
 
-            if (d1 >= 5 && d1 <= 200 && d2 > d1 * 8) {   // raw [1,C,N] channels-first
+            if (d1 >= 5 && d1 <= 200 && d2 > d1 * 8) {
                 float[] buf = new float[d1 * d2];
                 o.get(new int[]{0, 0, 0}, buf);
                 Parsed p = new Parsed();
                 p.n = d2;
                 p.pixel = true;
-                p.center = "center".equals(cfg.box);   // raw: format box theo config
+                p.center = "center".equals(cfg.box);
                 p.boxes = new float[d2 * 4];
                 p.scores = new float[d2];
-                // C = 4 box + 1 score + 5kpt×kd (pose 1 class), hoặc 4 + nc (multi-class)
                 int kd = (d1 > 5 && (d1 - 5) % 5 == 0) ? (d1 - 5) / 5 : 0;
                 if (kd >= 2) p.lands = new float[d2 * 10];
                 for (int j = 0; j < d2; j++) {
@@ -337,7 +327,6 @@ public class GenericOnnxDetector implements FaceDetector {
             }
         }
 
-        // Tách kênh: score(1|2) + box(4) + landmark(10)
         final int scoreCh = "sigmoid1".equals(cfg.score) ? 1 : 2;
         Parsed p = new Parsed();
         p.center = "center".equals(cfg.box);
