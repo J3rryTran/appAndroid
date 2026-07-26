@@ -58,6 +58,7 @@ public class MainActivity extends AppCompatActivity
     private TextView tvFps;
     private TextView tvCount;
     private TextView tvModel;
+    private TextView tvPrecision;
     private ImageView ivHint;
     private ImageButton btnStart;
     private ImageButton btnStop;
@@ -68,7 +69,9 @@ public class MainActivity extends AppCompatActivity
     private FaceDetector faceDetector;
 
     private String[] modelList = new String[0];
+    private List<String> allModelFiles = new ArrayList<>();
     private int modelIndex = 0;
+    private boolean useInt8 = false;
 
     private OrientationEventListener orientationListener;
     private int deviceDegrees = 0;
@@ -85,6 +88,7 @@ public class MainActivity extends AppCompatActivity
         tvFps       = findViewById(R.id.tvFps);
         tvCount     = findViewById(R.id.tvCount);
         tvModel     = findViewById(R.id.tvModel);
+        tvPrecision = findViewById(R.id.tvPrecision);
         ivHint      = findViewById(R.id.ivHint);
         btnStart    = findViewById(R.id.btnStart);
         btnStop     = findViewById(R.id.btnStop);
@@ -131,6 +135,7 @@ public class MainActivity extends AppCompatActivity
             nextModel();
             return true;
         });
+        tvPrecision.setOnClickListener(v -> togglePrecision());
         orientationListener = new OrientationEventListener(this) {
             @Override
             public void onOrientationChanged(int orientation) {
@@ -254,29 +259,89 @@ public class MainActivity extends AppCompatActivity
     // Multi-model
     // ---------------------------------------------------------------------
 
-    /** Quét assets/models -> danh sách model hỗ trợ; trỏ vào DEFAULT_MODEL nếu có. */
     private void initModelList() {
         List<String> found = new ArrayList<>();
-        try {
-            String[] all = getAssets().list(MODELS_DIR);
-            if (all != null) {
-                for (String f : all) {
-                    if (DetectorFactory.isSupportedFile(f)) found.add(f);
-                }
-            }
-        } catch (IOException e) {
-            Log.e(TAG, "Không đọc được assets/" + MODELS_DIR, e);
-        }
+        scanModels("", found);
         Collections.sort(found);
-        modelList = found.toArray(new String[0]);
+        allModelFiles = found;
+        List<String> bases = new ArrayList<>();
+        for (String f : found) {
+            String name = fileNameOf(f);
+            String base = stripExt(name);
+            if (base.endsWith("_int8")
+                    && findByFileName(base.substring(0, base.length() - 5) + extOf(name)) != null) {
+                continue;
+            }
+            bases.add(f);
+        }
+        modelList = bases.toArray(new String[0]);
         modelIndex = 0;
         for (int i = 0; i < modelList.length; i++) {
-            if (modelList[i].equals(DEFAULT_MODEL)) {
+            if (fileNameOf(modelList[i]).equals(DEFAULT_MODEL)) {
                 modelIndex = i;
                 break;
             }
         }
-        Log.i(TAG, "Model trong assets: " + found);
+        Log.i(TAG, "Model: " + bases);
+    }
+
+    private void scanModels(String rel, List<String> out) {
+        String dir = rel.isEmpty() ? MODELS_DIR : MODELS_DIR + "/" + rel;
+        try {
+            String[] entries = getAssets().list(dir);
+            if (entries == null) return;
+            for (String e : entries) {
+                String child = rel.isEmpty() ? e : rel + "/" + e;
+                if (DetectorFactory.isSupportedFile(e)) {
+                    out.add(child);
+                } else if (!e.contains(".")) {
+                    scanModels(child, out);
+                }
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Không đọc được assets/" + dir, e);
+        }
+    }
+
+    private static String fileNameOf(String p) {
+        int i = p.lastIndexOf('/');
+        return (i >= 0) ? p.substring(i + 1) : p;
+    }
+
+    private String findByFileName(String name) {
+        for (String p : allModelFiles) {
+            if (fileNameOf(p).equals(name)) return p;
+        }
+        return null;
+    }
+
+    private static String stripExt(String f) {
+        int dot = f.lastIndexOf('.');
+        return (dot > 0) ? f.substring(0, dot) : f;
+    }
+
+    private static String extOf(String f) {
+        int dot = f.lastIndexOf('.');
+        return (dot > 0) ? f.substring(dot) : "";
+    }
+
+    private static String int8VariantOf(String f) {
+        return stripExt(f) + "_int8" + extOf(f);
+    }
+
+    private void togglePrecision() {
+        if (modelList.length == 0) return;
+        String base = fileNameOf(modelList[modelIndex]);
+        if (!useInt8 && findByFileName(int8VariantOf(base)) == null) {
+            Toast.makeText(this, "Không có bản INT8: " + int8VariantOf(base),
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        useInt8 = !useInt8;
+        stopDetection();
+        releaseCurrentModel();
+        loadModel();
+        updateOrientationGate();
     }
 
     /** Chuyển model kế tiếp (gọi khi NHẤN GIỮ nút đổi cam). */
@@ -291,7 +356,8 @@ public class MainActivity extends AppCompatActivity
         loadModel();
         updateOrientationGate();
         if (detectionController != null) {
-            Toast.makeText(this, "Model: " + modelList[modelIndex], Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Model: " + fileNameOf(modelList[modelIndex]),
+                    Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -303,6 +369,12 @@ public class MainActivity extends AppCompatActivity
             return;
         }
         String fileName = modelList[modelIndex];
+        String variant = findByFileName(int8VariantOf(fileNameOf(fileName)));
+        if (useInt8 && variant != null) {
+            fileName = variant;
+        }
+        String shortName = fileNameOf(fileName);
+        tvPrecision.setText(stripExt(shortName).endsWith("_int8") ? "INT8" : "FP32");
         Log.i(TAG, "================ MODEL -> " + fileName + " ================");
         try {
             String modelPath = FileUtils.copyAssetToInternal(this, MODELS_DIR + "/" + fileName);
@@ -313,9 +385,9 @@ public class MainActivity extends AppCompatActivity
             // Smoke test: detect thử ảnh giả ngay lúc load (main thread, có catch).
             smokeTest(faceDetector);
 
-            detectionController = new FaceDetectionController(faceDetector, fileName, this);
+            detectionController = new FaceDetectionController(faceDetector, shortName, this);
             tvModel.setText(getString(R.string.model_label,
-                    faceDetector.name() + " · " + fileName));
+                    faceDetector.name() + " · " + shortName));
             Log.i(TAG, "Model load OK [" + faceDetector.name() + "]: " + modelPath);
         } catch (java.io.FileNotFoundException e) {
             releaseCurrentModel();
@@ -334,25 +406,28 @@ public class MainActivity extends AppCompatActivity
         }
     }
 
-    /** Đọc <tên-model-không-đuôi>.json trong assets/cfg (fallback assets/models). Không có -> đoán theo tên. */
     private ModelConfig readConfig(String modelFile) {
-        int dot = modelFile.lastIndexOf('.');
-        String base = (dot > 0) ? modelFile.substring(0, dot) : modelFile;
-        for (String dir : new String[]{CFG_DIR, MODELS_DIR}) {
-            String cfgAsset = dir + "/" + base + ".json";
-            try (InputStream is = getAssets().open(cfgAsset)) {
-                ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                byte[] buf = new byte[4096];
-                int n;
-                while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
-                ModelConfig c = ModelConfig.fromJson(bos.toString("UTF-8"));
-                Log.i(TAG, "Config: " + cfgAsset);
-                return c;
-            } catch (java.io.FileNotFoundException e) {
-                // thử thư mục kế tiếp
-            } catch (Exception e) {
-                CrashLogger.logError(TAG, "Đọc config lỗi: " + cfgAsset, e);
-                return ModelConfig.defaultFor(modelFile);
+        String base = stripExt(fileNameOf(modelFile));
+        List<String> bases = new ArrayList<>();
+        bases.add(base);
+        if (base.endsWith("_int8")) bases.add(base.substring(0, base.length() - 5));
+        for (String b : bases) {
+            for (String dir : new String[]{CFG_DIR, MODELS_DIR}) {
+                String cfgAsset = dir + "/" + b + ".json";
+                try (InputStream is = getAssets().open(cfgAsset)) {
+                    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                    byte[] buf = new byte[4096];
+                    int n;
+                    while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
+                    ModelConfig c = ModelConfig.fromJson(bos.toString("UTF-8"));
+                    Log.i(TAG, "Config: " + cfgAsset);
+                    return c;
+                } catch (java.io.FileNotFoundException e) {
+                    continue;
+                } catch (Exception e) {
+                    CrashLogger.logError(TAG, "Đọc config lỗi: " + cfgAsset, e);
+                    return ModelConfig.defaultFor(modelFile);
+                }
             }
         }
         Log.w(TAG, "Không có config cho " + modelFile + " -> dùng mặc định");

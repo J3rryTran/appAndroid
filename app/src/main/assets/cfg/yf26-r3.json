@@ -1,0 +1,14 @@
+{
+  "backend": "onnx",
+  "input": [320, 320],
+  "mean": [0, 0, 0],
+  "scale": 0.00392156862745098,
+  "swapRB": true,
+  "box": "corner",
+  "normalized": false,
+  "score": "sigmoid1",
+  "letterbox": true,
+  "outputs": ["/model.23/Concat_5_output_0"],
+  "scoreThreshold": 0.25,
+  "nmsThreshold": 0.45
+}

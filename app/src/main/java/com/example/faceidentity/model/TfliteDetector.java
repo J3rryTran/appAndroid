@@ -15,6 +15,7 @@ import org.opencv.imgproc.Imgproc;
 
 import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.Interpreter;
+import org.tensorflow.lite.Tensor;
 
 import java.io.File;
 import java.nio.ByteBuffer;
@@ -37,6 +38,9 @@ public class TfliteDetector implements FaceDetector {
     private Interpreter interpreter;
 
     private int inW, inH;
+    private DataType inType = DataType.FLOAT32;
+    private float inScale = 1f;
+    private int inZero = 0;
     private ByteBuffer inputBuf;
     private byte[] pixelBuf;
     private final Mat resized = new Mat();
@@ -44,6 +48,9 @@ public class TfliteDetector implements FaceDetector {
     private float lbScale = 1f, lbPadX = 0f, lbPadY = 0f;
 
     private int[][] outShapes;
+    private DataType[] outTypes;
+    private float[] outScales;
+    private int[] outZeros;
     private ByteBuffer[] outBufs;
     private float[][] outData;
     private boolean shapesLogged = false;
@@ -76,11 +83,17 @@ public class TfliteDetector implements FaceDetector {
         opt.setUseXNNPACK(true);
         interpreter = new Interpreter(new File(modelPath), opt);
 
-        if (interpreter.getInputTensor(0).dataType() != DataType.FLOAT32) {
-            throw new IllegalStateException("Chỉ hỗ trợ TFLite float32/fp16 — export lại không dùng int8 (input="
-                    + interpreter.getInputTensor(0).dataType() + ")");
+        Tensor in = interpreter.getInputTensor(0);
+        inType = in.dataType();
+        if (inType != DataType.FLOAT32 && inType != DataType.INT8 && inType != DataType.UINT8) {
+            throw new IllegalStateException("Kiểu input không hỗ trợ: " + inType);
         }
-        int[] ishape = interpreter.getInputTensor(0).shape();   // [1,H,W,3]
+        if (inType != DataType.FLOAT32) {
+            inScale = in.quantizationParams().getScale();
+            inZero = in.quantizationParams().getZeroPoint();
+            if (inScale == 0f) inScale = 1f;
+        }
+        int[] ishape = in.shape();
         inW = cfg.inputW;
         inH = cfg.inputH;
         if (ishape.length == 4 && ishape[3] == 3) {
@@ -90,25 +103,53 @@ public class TfliteDetector implements FaceDetector {
 
         int outs = interpreter.getOutputTensorCount();
         outShapes = new int[outs][];
+        outTypes = new DataType[outs];
+        outScales = new float[outs];
+        outZeros = new int[outs];
         outBufs = new ByteBuffer[outs];
         outData = new float[outs][];
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < outs; i++) {
-            if (interpreter.getOutputTensor(i).dataType() != DataType.FLOAT32) {
-                throw new IllegalStateException("Output " + i + " không phải float32 — export không dùng int8");
+            Tensor t = interpreter.getOutputTensor(i);
+            DataType dt = t.dataType();
+            if (dt != DataType.FLOAT32 && dt != DataType.INT8 && dt != DataType.UINT8) {
+                throw new IllegalStateException("Kiểu output không hỗ trợ: " + dt);
             }
-            int[] s = interpreter.getOutputTensor(i).shape();
+            outTypes[i] = dt;
+            if (dt != DataType.FLOAT32) {
+                outScales[i] = t.quantizationParams().getScale();
+                outZeros[i] = t.quantizationParams().getZeroPoint();
+                if (outScales[i] == 0f) outScales[i] = 1f;
+            }
+            int[] s = t.shape();
             outShapes[i] = s;
             int numel = 1;
             for (int d : s) numel *= d;
-            outBufs[i] = ByteBuffer.allocateDirect(numel * 4).order(ByteOrder.nativeOrder());
+            outBufs[i] = ByteBuffer.allocateDirect(numel * (dt == DataType.FLOAT32 ? 4 : 1))
+                    .order(ByteOrder.nativeOrder());
             outData[i] = new float[numel];
-            sb.append(Arrays.toString(s)).append(' ');
+            sb.append(Arrays.toString(s)).append(':').append(dt).append(' ');
         }
-        inputBuf = ByteBuffer.allocateDirect(inW * inH * 3 * 4).order(ByteOrder.nativeOrder());
+        inputBuf = ByteBuffer.allocateDirect(inW * inH * 3 * (inType == DataType.FLOAT32 ? 4 : 1))
+                .order(ByteOrder.nativeOrder());
         pixelBuf = new byte[inW * inH * 3];
-        Log.i(TAG, "[" + label + "] init OK input=" + inW + "x" + inH + " letterbox=" + cfg.letterbox
-                + " threads=" + NUM_THREADS + " XNNPACK=on outputs=" + sb);
+        Log.i(TAG, "[" + label + "] init OK input=" + inW + "x" + inH + " io=" + inType
+                + " letterbox=" + cfg.letterbox + " threads=" + NUM_THREADS
+                + " XNNPACK=on outputs=" + sb);
+    }
+
+    private void putVal(float v) {
+        if (inType == DataType.FLOAT32) {
+            inputBuf.putFloat(v);
+            return;
+        }
+        int q = Math.round(v / inScale) + inZero;
+        if (inType == DataType.INT8) {
+            q = Math.max(-128, Math.min(127, q));
+        } else {
+            q = Math.max(0, Math.min(255, q));
+        }
+        inputBuf.put((byte) q);
     }
 
     @Override
@@ -129,15 +170,15 @@ public class TfliteDetector implements FaceDetector {
         float m0 = (float) cfg.mean[0], m1 = (float) cfg.mean[1], m2 = (float) cfg.mean[2];
         if (cfg.swapRB) {
             for (int i = 0; i < pixelBuf.length; i += 3) {
-                inputBuf.putFloat(((pixelBuf[i + 2] & 0xFF) - m0) * sc);
-                inputBuf.putFloat(((pixelBuf[i + 1] & 0xFF) - m1) * sc);
-                inputBuf.putFloat(((pixelBuf[i] & 0xFF) - m2) * sc);
+                putVal(((pixelBuf[i + 2] & 0xFF) - m0) * sc);
+                putVal(((pixelBuf[i + 1] & 0xFF) - m1) * sc);
+                putVal(((pixelBuf[i] & 0xFF) - m2) * sc);
             }
         } else {
             for (int i = 0; i < pixelBuf.length; i += 3) {
-                inputBuf.putFloat(((pixelBuf[i] & 0xFF) - m0) * sc);
-                inputBuf.putFloat(((pixelBuf[i + 1] & 0xFF) - m1) * sc);
-                inputBuf.putFloat(((pixelBuf[i + 2] & 0xFF) - m2) * sc);
+                putVal(((pixelBuf[i] & 0xFF) - m0) * sc);
+                putVal(((pixelBuf[i + 1] & 0xFF) - m1) * sc);
+                putVal(((pixelBuf[i + 2] & 0xFF) - m2) * sc);
             }
         }
         inputBuf.rewind();
@@ -150,7 +191,18 @@ public class TfliteDetector implements FaceDetector {
         interpreter.runForMultipleInputsOutputs(new Object[]{inputBuf}, outs);
         for (int i = 0; i < outBufs.length; i++) {
             outBufs[i].rewind();
-            outBufs[i].asFloatBuffer().get(outData[i]);
+            if (outTypes[i] == DataType.FLOAT32) {
+                outBufs[i].asFloatBuffer().get(outData[i]);
+            } else {
+                float s = outScales[i];
+                int z = outZeros[i];
+                boolean unsigned = outTypes[i] == DataType.UINT8;
+                float[] dst = outData[i];
+                for (int j = 0; j < dst.length; j++) {
+                    int q = unsigned ? (outBufs[i].get(j) & 0xFF) : outBufs[i].get(j);
+                    dst[j] = (q - z) * s;
+                }
+            }
         }
 
         if (!shapesLogged) {
@@ -168,7 +220,6 @@ public class TfliteDetector implements FaceDetector {
         if (statCalls < 3 || statCalls % 60 == 0) logStats(p);
         statCalls++;
 
-        // normalized -> pixel theo input; rồi map input -> ảnh (letterbox hoặc stretch)
         final float toX = cfg.normalized ? inW : 1f;
         final float toY = cfg.normalized ? inH : 1f;
         final float sx, sy, ox, oy;
@@ -263,7 +314,7 @@ public class TfliteDetector implements FaceDetector {
             int d1 = s[1], d2 = s[2];
             float[] buf = outData[t];
 
-            if (d1 <= 1000 && d2 >= 6 && d2 <= 60) {   // e2e: xyxy,score,cls[,5kpt×(2|3)]
+            if (d1 <= 1000 && d2 >= 6 && d2 <= 60) {
                 Parsed p = new Parsed();
                 p.n = d1;
                 p.center = false;
@@ -286,7 +337,7 @@ public class TfliteDetector implements FaceDetector {
                 return p;
             }
 
-            if (d2 == 6 && d1 > 1000) {                 // v5-style: cxcywh,obj,cls
+            if (d2 == 6 && d1 > 1000) {
                 Parsed p = new Parsed();
                 p.n = d1;
                 p.center = true;
@@ -299,7 +350,7 @@ public class TfliteDetector implements FaceDetector {
                 return p;
             }
 
-            if (d1 >= 5 && d1 <= 200 && d2 > d1 * 8) {   // raw [1,C,N] channels-first
+            if (d1 >= 5 && d1 <= 200 && d2 > d1 * 8) {
                 Parsed p = new Parsed();
                 p.n = d2;
                 p.center = "center".equals(cfg.box);
@@ -331,7 +382,6 @@ public class TfliteDetector implements FaceDetector {
             }
         }
 
-        // Tách kênh RFB: score(1|2) + box(4) + landmark(10), row-major
         final int scoreCh = "sigmoid1".equals(cfg.score) ? 1 : 2;
         Parsed p = new Parsed();
         p.center = "center".equals(cfg.box);
@@ -372,7 +422,9 @@ public class TfliteDetector implements FaceDetector {
 
     private String shapes() {
         StringBuilder sb = new StringBuilder();
-        for (int[] s : outShapes) sb.append(Arrays.toString(s)).append(' ');
+        for (int i = 0; i < outShapes.length; i++) {
+            sb.append(Arrays.toString(outShapes[i])).append(':').append(outTypes[i]).append(' ');
+        }
         return sb.toString();
     }
 

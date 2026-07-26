@@ -69,6 +69,21 @@
             android:text="Model: -"
             android:textColor="@color/white"
             android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvPrecision"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_chip"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:text="FP32"
+            android:textColor="@color/white"
+            android:textSize="13sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <!-- Gợi ý xoay ngang: CHỈ icon, hiện khi máy chưa nằm ngang -->
