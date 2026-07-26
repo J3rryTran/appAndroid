@@ -302,6 +302,7 @@ public class MainActivity extends AppCompatActivity
             return;
         }
         String fileName = modelList[modelIndex];
+        Log.i(TAG, "================ MODEL -> " + fileName + " ================");
         try {
             String modelPath = FileUtils.copyAssetToInternal(this, MODELS_DIR + "/" + fileName);
             ModelConfig cfg = readConfig(fileName);
@@ -311,7 +312,7 @@ public class MainActivity extends AppCompatActivity
             // Smoke test: detect thử ảnh giả ngay lúc load (main thread, có catch).
             smokeTest(faceDetector);
 
-            detectionController = new FaceDetectionController(faceDetector, this);
+            detectionController = new FaceDetectionController(faceDetector, fileName, this);
             tvModel.setText(getString(R.string.model_label,
                     faceDetector.name() + " · " + fileName));
             Log.i(TAG, "Model load OK [" + faceDetector.name() + "]: " + modelPath);
@@ -377,9 +378,9 @@ public class MainActivity extends AppCompatActivity
     }
 
     @Override
-    public void onResult(float[] boxes, float[] landmarks, int faceCount,
+    public void onResult(float[] boxes, float[] landmarks, float[] scores, int faceCount,
                          int frameWidth, int frameHeight, double fps) {
-        overlay.setResults(boxes, landmarks, frameWidth, frameHeight);
+        overlay.setResults(boxes, landmarks, scores, frameWidth, frameHeight);
         tvCount.setText(getString(R.string.face_count, faceCount));
         tvFps.setText(getString(R.string.fps, fps));
     }

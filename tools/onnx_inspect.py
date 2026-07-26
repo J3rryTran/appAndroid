@@ -40,17 +40,22 @@ def parse_shape(buf):
             dims.append(dv)
     return dims
 
+DTYPES = {1:'float32', 2:'uint8', 3:'int8', 4:'uint16', 5:'int16', 6:'int32',
+          7:'int64', 9:'bool', 10:'float16', 11:'double'}
+
 def parse_valueinfo(buf):
-    name = '?'; shape = []
+    name = '?'; shape = []; etype = 0
     for fn, (t, v) in fields(buf, 0, len(buf)):
         if fn == 1 and t == 'b': name = v.decode('utf-8', 'replace')
         elif fn == 2 and t == 'b':
             for f2, (t2, v2) in fields(v, 0, len(v)):
                 if f2 == 1 and t2 == 'b':
                     for f3, (t3, v3) in fields(v2, 0, len(v2)):
-                        if f3 == 2 and t3 == 'b':
+                        if f3 == 1 and t3 == 'v':
+                            etype = v3
+                        elif f3 == 2 and t3 == 'b':
                             shape = parse_shape(v3)
-    return name, shape
+    return name, shape, DTYPES.get(etype, '?%d' % etype)
 
 def parse_node(buf):
     op = '?'; outs = []
@@ -74,9 +79,9 @@ for fn, (t, v) in fields(graph, 0, len(graph)):
             if f2 == 8 and t2 == 'b': init_names.add(v2.decode('utf-8','replace'))
 
 print("=== INPUTS ===")
-for n, s in inputs:
-    if n not in init_names: print(f"  {n}: {s}")
+for n, s, dt in inputs:
+    if n not in init_names: print(f"  {n}: {s} {dt}")
 print("=== OUTPUTS ===")
-for n, s in outputs: print(f"  {n}: {s}")
+for n, s, dt in outputs: print(f"  {n}: {s} {dt}")
 print("=== OP TYPES ===")
 for op, c in ops.most_common(): print(f"  {op}: {c}")

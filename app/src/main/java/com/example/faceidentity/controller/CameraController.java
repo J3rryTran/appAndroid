@@ -1,11 +1,19 @@
 package com.example.faceidentity.controller;
 
 import android.content.Context;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CaptureRequest;
 import android.util.Log;
+import android.util.Range;
 import android.util.Size;
 import android.view.Surface;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.OptIn;
+import androidx.camera.camera2.interop.Camera2CameraInfo;
+import androidx.camera.camera2.interop.Camera2Interop;
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop;
+import androidx.camera.core.CameraInfo;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageProxy;
@@ -20,6 +28,7 @@ import androidx.lifecycle.LifecycleOwner;
 import com.example.faceidentity.utils.CrashLogger;
 import com.google.common.util.concurrent.ListenableFuture;
 
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -69,7 +78,7 @@ public class CameraController {
     }
     public void startCamera() {
         if (analysisExecutor == null) {
-            analysisExecutor = Executors.newSingleThreadExecutor();
+            analysisExecutor = newAnalysisExecutor();
         }
         final ListenableFuture<ProcessCameraProvider> future =
                 ProcessCameraProvider.getInstance(context);
@@ -93,10 +102,11 @@ public class CameraController {
         if (imageAnalysis != null) imageAnalysis.setTargetRotation(surfaceRotation);
     }
 
+    @OptIn(markerClass = ExperimentalCamera2Interop.class)
     private void bindUseCases() {
         if (cameraProvider == null) return;
         if (analysisExecutor == null) {
-            analysisExecutor = Executors.newSingleThreadExecutor();
+            analysisExecutor = newAnalysisExecutor();
         }
         if (!hasCamera(lensFacing)) {
             int other = isFront() ? CameraSelector.LENS_FACING_BACK
@@ -110,7 +120,15 @@ public class CameraController {
         }
 
         cameraProvider.unbindAll();
-        preview = new Preview.Builder().build();
+
+        // Khoá sàn FPS (AE không được tụt xuống 15fps lúc thiếu sáng -> preview hết "trễ nhẹ")
+        Preview.Builder previewBuilder = new Preview.Builder();
+        Range<Integer> fpsRange = pickFpsRange();
+        if (fpsRange != null) {
+            new Camera2Interop.Extender<>(previewBuilder).setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange);
+        }
+        preview = previewBuilder.build();
         preview.setSurfaceProvider(previewView.getSurfaceProvider());
         ResolutionSelector resolutionSelector = new ResolutionSelector.Builder()
                 .setResolutionStrategy(new ResolutionStrategy(
@@ -134,8 +152,42 @@ public class CameraController {
                 .requireLensFacing(lensFacing)
                 .build();
         cameraProvider.bindToLifecycle(lifecycleOwner, selector, preview, imageAnalysis);
-        Log.i(TAG, "CameraX bind OK. front=" + isFront() + " rotation=" + targetRotation);
+        Log.i(TAG, "CameraX bind OK. front=" + isFront() + " rotation=" + targetRotation
+                + " fps=" + fpsRange);
         if (lensChangedListener != null) lensChangedListener.onLensChanged(isFront());
+    }
+
+    @OptIn(markerClass = ExperimentalCamera2Interop.class)
+    private Range<Integer> pickFpsRange() {
+        try {
+            CameraSelector sel = new CameraSelector.Builder()
+                    .requireLensFacing(lensFacing).build();
+            List<CameraInfo> infos = sel.filter(cameraProvider.getAvailableCameraInfos());
+            if (infos.isEmpty()) return null;
+            Range<Integer>[] ranges = Camera2CameraInfo.from(infos.get(0)).getCameraCharacteristic(
+                    CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
+            if (ranges == null) return null;
+            Range<Integer> best = null;
+            for (Range<Integer> r : ranges) {
+                if (r.getUpper() < 30) continue;
+                if (best == null
+                        || r.getLower() > best.getLower()
+                        || (r.getLower().equals(best.getLower()) && r.getUpper() < best.getUpper())) {
+                    best = r;
+                }
+            }
+            return best;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // Thread phân tích chạy priority thấp -> nhường CPU cho camera/hiển thị
+    private static ExecutorService newAnalysisExecutor() {
+        return Executors.newSingleThreadExecutor(r -> new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            r.run();
+        }, "face-analysis"));
     }
 
     private boolean hasCamera(int facing) {

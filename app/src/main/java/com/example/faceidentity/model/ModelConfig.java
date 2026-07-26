@@ -15,6 +15,10 @@ public class ModelConfig {
     public String box = "corner";           // "corner" (x1,y1,x2,y2) | "center" (cx,cy,w,h)
     public boolean normalized = true;       // box/landmark 0..1 -> true; pixel theo input -> false
     public String score = "softmax2";       // "softmax2" (lấy kênh 1) | "sigmoid1"
+    public boolean letterbox = false;       // true: resize giữ tỉ lệ + pad 114 (chuẩn YOLO)
+    public String[] outputs = null;         // ép forward tới các blob này (bỏ qua đầu e2e lỗi)
+    public float scoreScale = 1f;           // nhân vào score thô (cứu model int8 sai scale)
+    public float boxScale = 1f;             // co/giãn box quanh tâm (calibration box lỏng)
     public float scoreThreshold = 0.7f;
     public float nmsThreshold = 0.3f;
 
@@ -37,6 +41,14 @@ public class ModelConfig {
             c.box = o.optString("box", c.box);
             c.normalized = o.optBoolean("normalized", c.normalized);
             c.score = o.optString("score", c.score);
+            c.letterbox = o.optBoolean("letterbox", c.letterbox);
+            if (o.has("outputs")) {
+                JSONArray a = o.getJSONArray("outputs");
+                c.outputs = new String[a.length()];
+                for (int i = 0; i < a.length(); i++) c.outputs[i] = a.getString(i);
+            }
+            c.scoreScale = (float) o.optDouble("scoreScale", c.scoreScale);
+            c.boxScale = (float) o.optDouble("boxScale", c.boxScale);
             c.scoreThreshold = (float) o.optDouble("scoreThreshold", c.scoreThreshold);
             c.nmsThreshold = (float) o.optDouble("nmsThreshold", c.nmsThreshold);
         } catch (Exception e) {

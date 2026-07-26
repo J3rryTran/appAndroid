@@ -35,7 +35,7 @@ public class FaceDetectionController {
          * @param landmarks 5 điểm (x,y)/mặt = 10 float/mặt, cùng hệ toạ độ với boxes.
          *                  Có thể null nếu model không có landmark.
          */
-        void onResult(float[] boxes, float[] landmarks, int faceCount,
+        void onResult(float[] boxes, float[] landmarks, float[] scores, int faceCount,
                       int frameWidth, int frameHeight, double fps);
 
         /**
@@ -46,6 +46,7 @@ public class FaceDetectionController {
     }
 
     private final FaceDetector detector;
+    private final String label;
     private final ImageUtils imageUtils = new ImageUtils();
     private final ResultListener listener;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -59,11 +60,13 @@ public class FaceDetectionController {
     private long fpsWindowStart = 0;
     private int fpsFrameCount = 0;
     private double fps = 0.0;
-    private int lastFaceCount = 0;   // cho log định kỳ
+    private int lastFaceCount = 0;      // cho log định kỳ
+    private float lastAvgScore = 0f;
 
-    public FaceDetectionController(@NonNull FaceDetector detector,
+    public FaceDetectionController(@NonNull FaceDetector detector, String label,
                                    @NonNull ResultListener listener) {
         this.detector = detector;
+        this.label = (label != null) ? label.replaceAll("\\.[^.]+$", "") : "?";
         this.listener = listener;
     }
 
@@ -106,13 +109,14 @@ public class FaceDetectionController {
             }
 
             lastFaceCount = result.count();
+            lastAvgScore = avg(result.scores);
             updateFps();
             final double curFps = fps;
             final DetectionResult r = result;
             final int ffw = fw;
             final int ffh = fh;
             mainHandler.post(() ->
-                    listener.onResult(r.boxes, r.landmarks, r.count(), ffw, ffh, curFps));
+                    listener.onResult(r.boxes, r.landmarks, r.scores, r.count(), ffw, ffh, curFps));
         } finally {
             image.close();
         }
@@ -132,8 +136,16 @@ public class FaceDetectionController {
             fpsWindowStart = now;
             fpsFrameCount = 0;
             // Log hiệu năng định kỳ (~0.5s/lần). Lọc: adb logcat -s FaceDetectionCtrl
-            Log.i(TAG, String.format(Locale.US, "FPS=%.1f | faces=%d", fps, lastFaceCount));
+            Log.i(TAG, String.format(Locale.US, "[%s] FPS=%.1f | faces=%d | conf=%.2f",
+                    label, fps, lastFaceCount, lastAvgScore));
         }
+    }
+
+    private static float avg(float[] a) {
+        if (a == null || a.length == 0) return 0f;
+        float s = 0f;
+        for (float v : a) s += v;
+        return s / a.length;
     }
 
     /**
