@@ -7,4 +7,8 @@ public interface FaceDetector {
     void init();
     DetectionResult detect(Mat bgr);
     void release();
+
+    default String timings() {
+        return "";
+    }
 }

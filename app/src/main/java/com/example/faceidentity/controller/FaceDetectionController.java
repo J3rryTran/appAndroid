@@ -11,7 +11,9 @@ import androidx.camera.core.ImageProxy;
 import com.example.faceidentity.model.DetectionResult;
 import com.example.faceidentity.model.FaceDetector;
 import com.example.faceidentity.utils.CrashLogger;
+import com.example.faceidentity.utils.HeadPose;
 import com.example.faceidentity.utils.ImageUtils;
+import com.example.faceidentity.utils.LatencyMeter;
 
 import org.opencv.core.Mat;
 
@@ -22,14 +24,14 @@ public class FaceDetectionController {
     private static final String TAG = "FaceDetectionCtrl";
 
     public interface ResultListener {
-        void onResult(float[] boxes, float[] landmarks, float[] scores, int faceCount,
-                      int frameWidth, int frameHeight, double fps);
+        void onResult(DetectionResult result, int frameWidth, int frameHeight, double fps);
         void onDetectionError(Exception e);
     }
 
     private final FaceDetector detector;
     private final String label;
     private final ImageUtils imageUtils = new ImageUtils();
+    private final HeadPose headPose = new HeadPose();
     private final ResultListener listener;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Object lock = new Object();
@@ -42,6 +44,9 @@ public class FaceDetectionController {
     private double fps = 0.0;
     private int lastFaceCount = 0;
     private float lastAvgScore = 0f;
+    private String lastPose = "";
+    private String lastLmk = "";
+    private final LatencyMeter pipeline = new LatencyMeter("cvt", "det");
 
     public FaceDetectionController(@NonNull FaceDetector detector, String label,
                                    @NonNull ResultListener listener) {
@@ -73,8 +78,12 @@ public class FaceDetectionController {
             try {
                 synchronized (lock) {
                     if (released) return;
+                    long t0 = System.nanoTime();
                     Mat bgr = imageUtils.imageProxyToBgr(image);
+                    long t1 = System.nanoTime();
                     result = detector.detect(bgr);
+                    long t2 = System.nanoTime();
+                    pipeline.add((t1 - t0) / 1e6, (t2 - t1) / 1e6);
                     fw = bgr.cols();
                     fh = bgr.rows();
                 }
@@ -87,13 +96,14 @@ public class FaceDetectionController {
 
             lastFaceCount = result.count();
             lastAvgScore = avg(result.scores);
+            computePose(result, fw, fh);
+            updateSummary(result);
             updateFps();
             final double curFps = fps;
             final DetectionResult r = result;
             final int ffw = fw;
             final int ffh = fh;
-            mainHandler.post(() ->
-                    listener.onResult(r.boxes, r.landmarks, r.scores, r.count(), ffw, ffh, curFps));
+            mainHandler.post(() -> listener.onResult(r, ffw, ffh, curFps));
         } finally {
             image.close();
         }
@@ -112,8 +122,56 @@ public class FaceDetectionController {
             fps = fpsFrameCount * 1000.0 / dt;
             fpsWindowStart = now;
             fpsFrameCount = 0;
-            Log.i(TAG, String.format(Locale.US, "[%s] FPS=%.1f | faces=%d | conf=%.2f",
-                    label, fps, lastFaceCount, lastAvgScore));
+            String pipe = pipeline.snapshotAndReset();
+            String stages = detector.timings();
+            Log.i(TAG, String.format(Locale.US,
+                    "[%s] FPS=%.1f | faces=%d | conf=%.2f | %s%s ms%s%s",
+                    label, fps, lastFaceCount, lastAvgScore, pipe,
+                    stages.isEmpty() ? "" : " | " + stages, lastPose, lastLmk));
+        }
+    }
+
+    private void computePose(DetectionResult r, int fw, int fh) {
+        int n = r.count();
+        if (n == 0 || !r.hasLandmarks()) {
+            r.pose = null;
+            return;
+        }
+        float[] pose = new float[n * 3];
+        for (int i = 0; i < n; i++) {
+            if (!headPose.estimate(r.landmarks, i, fw, fh, pose, i * 3)) {
+                pose[i * 3] = Float.NaN;
+            }
+        }
+        r.pose = pose;
+    }
+
+    private void updateSummary(DetectionResult r) {
+        int n = r.count();
+        if (n == 0) {
+            lastPose = "";
+            lastLmk = "";
+            return;
+        }
+        int best = 0;
+        for (int i = 1; i < n; i++) {
+            if (r.scores[i] > r.scores[best]) best = i;
+        }
+        if (r.hasPose() && !Float.isNaN(r.pose[best * 3])) {
+            lastPose = String.format(Locale.US, " | pose=y%.0f/p%.0f/r%.0f",
+                    r.pose[best * 3], r.pose[best * 3 + 1], r.pose[best * 3 + 2]);
+        } else {
+            lastPose = "";
+        }
+        if (r.hasLandmarkScores()) {
+            StringBuilder sb = new StringBuilder(" | kpt=");
+            for (int q = 0; q < 5; q++) {
+                if (q > 0) sb.append('/');
+                sb.append(Math.round(r.landmarkScores[best * 5 + q] * 100));
+            }
+            lastLmk = sb.toString();
+        } else {
+            lastLmk = "";
         }
     }
 
@@ -130,6 +188,7 @@ public class FaceDetectionController {
             released = true;
             detector.release();
             imageUtils.release();
+            headPose.release();
         }
     }
 }

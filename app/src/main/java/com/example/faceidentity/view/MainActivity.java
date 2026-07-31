@@ -20,6 +20,7 @@ import androidx.camera.view.PreviewView;
 import com.example.faceidentity.R;
 import com.example.faceidentity.controller.CameraController;
 import com.example.faceidentity.controller.FaceDetectionController;
+import com.example.faceidentity.model.DetectionResult;
 import com.example.faceidentity.model.DetectorFactory;
 import com.example.faceidentity.model.FaceDetector;
 import com.example.faceidentity.model.ModelConfig;
@@ -458,10 +459,9 @@ public class MainActivity extends AppCompatActivity
     }
 
     @Override
-    public void onResult(float[] boxes, float[] landmarks, float[] scores, int faceCount,
-                         int frameWidth, int frameHeight, double fps) {
-        overlay.setResults(boxes, landmarks, scores, frameWidth, frameHeight);
-        tvCount.setText(getString(R.string.face_count, faceCount));
+    public void onResult(DetectionResult result, int frameWidth, int frameHeight, double fps) {
+        overlay.setResults(result, frameWidth, frameHeight);
+        tvCount.setText(getString(R.string.face_count, result.count()));
         tvFps.setText(getString(R.string.fps, fps));
     }
 

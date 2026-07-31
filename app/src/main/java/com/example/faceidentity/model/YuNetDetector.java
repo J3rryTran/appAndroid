@@ -6,6 +6,8 @@ import org.opencv.core.Mat;
 import org.opencv.core.Size;
 import org.opencv.objdetect.FaceDetectorYN;
 
+import com.example.faceidentity.utils.LatencyMeter;
+
 public class YuNetDetector implements FaceDetector {
 
     private static final String TAG = "YuNetDetector";
@@ -21,6 +23,9 @@ public class YuNetDetector implements FaceDetector {
 
     private final Mat faces = new Mat();
     private final float[] rowBuf = new float[15];
+
+    private final LatencyMeter meter = new LatencyMeter("pre", "inf", "post");
+    private long tPre, tInf;
 
     public YuNetDetector(String modelPath) {
         this.modelPath = modelPath;
@@ -43,15 +48,35 @@ public class YuNetDetector implements FaceDetector {
     }
 
     @Override
+    public String timings() {
+        return meter.snapshotAndReset();
+    }
+
+    @Override
     public DetectionResult detect(Mat bgr) {
         if (detector == null) return DetectionResult.EMPTY;
+        long t0 = System.nanoTime();
+        tPre = 0;
+        tInf = 0;
+        try {
+            return detectInner(bgr);
+        } finally {
+            long t3 = System.nanoTime();
+            if (tPre > 0 && tInf > 0) {
+                meter.add((tPre - t0) / 1e6, (tInf - tPre) / 1e6, (t3 - tInf) / 1e6);
+            }
+        }
+    }
 
+    private DetectionResult detectInner(Mat bgr) {
         if (inW != bgr.cols() || inH != bgr.rows()) {
             inW = bgr.cols();
             inH = bgr.rows();
             detector.setInputSize(new Size(inW, inH));
         }
+        tPre = System.nanoTime();
         detector.detect(bgr, faces);
+        tInf = System.nanoTime();
 
         int n = faces.rows();
         if (n <= 0) return DetectionResult.EMPTY;

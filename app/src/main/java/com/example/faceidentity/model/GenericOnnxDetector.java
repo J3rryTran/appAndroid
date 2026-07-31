@@ -16,6 +16,7 @@ import org.opencv.dnn.Net;
 import org.opencv.imgproc.Imgproc;
 
 import com.example.faceidentity.utils.CrashLogger;
+import com.example.faceidentity.utils.LatencyMeter;
 import com.example.faceidentity.utils.OnnxTopKPatcher;
 
 import java.util.ArrayList;
@@ -38,10 +39,14 @@ public class GenericOnnxDetector implements FaceDetector {
     private Mat lbCanvas;
     private float lbScale = 1f, lbPadX = 0f, lbPadY = 0f;
 
+    private final LatencyMeter meter = new LatencyMeter("pre", "inf", "post");
+    private long tPre, tInf;
+
     private static class Parsed {
         float[] scores;
         float[] boxes;
         float[] lands;
+        float[] landScores;
         float[] raw;
         int stride;
         int n;
@@ -81,16 +86,37 @@ public class GenericOnnxDetector implements FaceDetector {
     }
 
     @Override
+    public String timings() {
+        return meter.snapshotAndReset();
+    }
+
+    @Override
     public DetectionResult detect(Mat bgr) {
         if (net == null) return DetectionResult.EMPTY;
+        long t0 = System.nanoTime();
+        tPre = 0;
+        tInf = 0;
+        try {
+            return detectInner(bgr);
+        } finally {
+            long t3 = System.nanoTime();
+            if (tPre > 0 && tInf > 0) {
+                meter.add((tPre - t0) / 1e6, (tInf - tPre) / 1e6, (t3 - tInf) / 1e6);
+            }
+        }
+    }
+
+    private DetectionResult detectInner(Mat bgr) {
         final int W = bgr.cols(), H = bgr.rows();
 
         Mat src = cfg.letterbox ? letterbox(bgr) : bgr;
         Mat blob = Dnn.blobFromImage(src, cfg.scale, new Size(cfg.inputW, cfg.inputH),
                 new Scalar(cfg.mean[0], cfg.mean[1], cfg.mean[2]), cfg.swapRB, false);
         net.setInput(blob);
+        tPre = System.nanoTime();
         outputs.clear();
         net.forward(outputs, outNames);
+        tInf = System.nanoTime();
         blob.release();
 
         if (!shapesLogged) {
@@ -159,6 +185,7 @@ public class GenericOnnxDetector implements FaceDetector {
         float[] ob = new float[kp.length * 4];
         float[] os = new float[kp.length];
         float[] ol = (p.lands != null) ? new float[kp.length * 10] : null;
+        float[] ols = (p.landScores != null) ? new float[kp.length * 5] : null;
         for (int k = 0; k < kp.length; k++) {
             Rect2d r = rects.get(kp[k]);
             ob[k * 4] = (float) r.x; ob[k * 4 + 1] = (float) r.y;
@@ -171,8 +198,11 @@ public class GenericOnnxDetector implements FaceDetector {
                     ol[k * 10 + q * 2 + 1] = (p.lands[srcI + q * 2 + 1] - oy) * sy;
                 }
             }
+            if (ols != null) {
+                System.arraycopy(p.landScores, idxs.get(kp[k]) * 5, ols, k * 5, 5);
+            }
         }
-        return new DetectionResult(ob, os, ol);
+        return new DetectionResult(ob, os, ol, ols);
     }
 
     private List<String> resolveLayers(String[] wanted) {
@@ -260,6 +290,7 @@ public class GenericOnnxDetector implements FaceDetector {
                 int extra = d2 - 6;
                 int kd = (extra >= 10 && extra % 5 == 0) ? extra / 5 : 0;
                 if (kd >= 2) p.lands = new float[d1 * 10];
+                if (kd >= 3) p.landScores = new float[d1 * 5];
                 for (int i = 0; i < d1; i++) {
                     int base = i * d2;
                     System.arraycopy(buf, base, p.boxes, i * 4, 4);
@@ -268,6 +299,7 @@ public class GenericOnnxDetector implements FaceDetector {
                         for (int q = 0; q < 5; q++) {
                             p.lands[i * 10 + q * 2]     = buf[base + 6 + q * kd];
                             p.lands[i * 10 + q * 2 + 1] = buf[base + 6 + q * kd + 1];
+                            if (kd >= 3) p.landScores[i * 5 + q] = buf[base + 6 + q * kd + 2];
                         }
                     }
                 }
@@ -303,6 +335,7 @@ public class GenericOnnxDetector implements FaceDetector {
                 p.scores = new float[d2];
                 int kd = (d1 > 5 && (d1 - 5) % 5 == 0) ? (d1 - 5) / 5 : 0;
                 if (kd >= 2) p.lands = new float[d2 * 10];
+                if (kd >= 3) p.landScores = new float[d2 * 5];
                 for (int j = 0; j < d2; j++) {
                     p.boxes[j * 4]     = buf[j];
                     p.boxes[j * 4 + 1] = buf[d2 + j];
@@ -313,6 +346,7 @@ public class GenericOnnxDetector implements FaceDetector {
                         for (int q = 0; q < 5; q++) {
                             p.lands[j * 10 + q * 2]     = buf[(5 + q * kd) * d2 + j];
                             p.lands[j * 10 + q * 2 + 1] = buf[(5 + q * kd + 1) * d2 + j];
+                            if (kd >= 3) p.landScores[j * 5 + q] = buf[(5 + q * kd + 2) * d2 + j];
                         }
                     } else {
                         float best = 0f;

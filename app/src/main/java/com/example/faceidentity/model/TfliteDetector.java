@@ -17,6 +17,8 @@ import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.Tensor;
 
+import com.example.faceidentity.utils.LatencyMeter;
+
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -56,10 +58,14 @@ public class TfliteDetector implements FaceDetector {
     private boolean shapesLogged = false;
     private int statCalls = 0;
 
+    private final LatencyMeter meter = new LatencyMeter("pre", "inf", "post");
+    private long tPre, tInf;
+
     private static class Parsed {
         float[] scores;
         float[] boxes;
         float[] lands;
+        float[] landScores;
         int n;
         boolean center;
     }
@@ -153,8 +159,27 @@ public class TfliteDetector implements FaceDetector {
     }
 
     @Override
+    public String timings() {
+        return meter.snapshotAndReset();
+    }
+
+    @Override
     public DetectionResult detect(Mat bgr) {
         if (interpreter == null) return DetectionResult.EMPTY;
+        long t0 = System.nanoTime();
+        tPre = 0;
+        tInf = 0;
+        try {
+            return detectInner(bgr);
+        } finally {
+            long t3 = System.nanoTime();
+            if (tPre > 0 && tInf > 0) {
+                meter.add((tPre - t0) / 1e6, (tInf - tPre) / 1e6, (t3 - tInf) / 1e6);
+            }
+        }
+    }
+
+    private DetectionResult detectInner(Mat bgr) {
         final int W = bgr.cols(), H = bgr.rows();
 
         Mat feed;
@@ -188,7 +213,9 @@ public class TfliteDetector implements FaceDetector {
             outBufs[i].rewind();
             outs.put(i, outBufs[i]);
         }
+        tPre = System.nanoTime();
         interpreter.runForMultipleInputsOutputs(new Object[]{inputBuf}, outs);
+        tInf = System.nanoTime();
         for (int i = 0; i < outBufs.length; i++) {
             outBufs[i].rewind();
             if (outTypes[i] == DataType.FLOAT32) {
@@ -270,6 +297,7 @@ public class TfliteDetector implements FaceDetector {
         float[] ob = new float[kp.length * 4];
         float[] os = new float[kp.length];
         float[] ol = (p.lands != null) ? new float[kp.length * 10] : null;
+        float[] ols = (p.landScores != null) ? new float[kp.length * 5] : null;
         for (int k = 0; k < kp.length; k++) {
             Rect2d r = rects.get(kp[k]);
             ob[k * 4] = (float) r.x; ob[k * 4 + 1] = (float) r.y;
@@ -282,8 +310,11 @@ public class TfliteDetector implements FaceDetector {
                     ol[k * 10 + q * 2 + 1] = (p.lands[src + q * 2 + 1] * toY - oy) * sy;
                 }
             }
+            if (ols != null) {
+                System.arraycopy(p.landScores, idxs.get(kp[k]) * 5, ols, k * 5, 5);
+            }
         }
-        return new DetectionResult(ob, os, ol);
+        return new DetectionResult(ob, os, ol, ols);
     }
 
     private Mat letterbox(Mat bgr) {
@@ -323,6 +354,7 @@ public class TfliteDetector implements FaceDetector {
                 int extra = d2 - 6;
                 int kd = (extra >= 10 && extra % 5 == 0) ? extra / 5 : 0;
                 if (kd >= 2) p.lands = new float[d1 * 10];
+                if (kd >= 3) p.landScores = new float[d1 * 5];
                 for (int i = 0; i < d1; i++) {
                     int base = i * d2;
                     System.arraycopy(buf, base, p.boxes, i * 4, 4);
@@ -331,6 +363,7 @@ public class TfliteDetector implements FaceDetector {
                         for (int q = 0; q < 5; q++) {
                             p.lands[i * 10 + q * 2]     = buf[base + 6 + q * kd];
                             p.lands[i * 10 + q * 2 + 1] = buf[base + 6 + q * kd + 1];
+                            if (kd >= 3) p.landScores[i * 5 + q] = buf[base + 6 + q * kd + 2];
                         }
                     }
                 }
@@ -358,6 +391,7 @@ public class TfliteDetector implements FaceDetector {
                 p.scores = new float[d2];
                 int kd = (d1 > 5 && (d1 - 5) % 5 == 0) ? (d1 - 5) / 5 : 0;
                 if (kd >= 2) p.lands = new float[d2 * 10];
+                if (kd >= 3) p.landScores = new float[d2 * 5];
                 for (int j = 0; j < d2; j++) {
                     p.boxes[j * 4]     = buf[j];
                     p.boxes[j * 4 + 1] = buf[d2 + j];
@@ -368,6 +402,7 @@ public class TfliteDetector implements FaceDetector {
                         for (int q = 0; q < 5; q++) {
                             p.lands[j * 10 + q * 2]     = buf[(5 + q * kd) * d2 + j];
                             p.lands[j * 10 + q * 2 + 1] = buf[(5 + q * kd + 1) * d2 + j];
+                            if (kd >= 3) p.landScores[j * 5 + q] = buf[(5 + q * kd + 2) * d2 + j];
                         }
                     } else {
                         float best = 0f;

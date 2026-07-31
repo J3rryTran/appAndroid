@@ -7,6 +7,8 @@ import android.graphics.Paint;
 import android.util.AttributeSet;
 import android.view.View;
 
+import com.example.faceidentity.model.DetectionResult;
+
 import java.util.Locale;
 
 public class CameraPreview extends View {
@@ -18,10 +20,14 @@ public class CameraPreview extends View {
     private final Paint boxPaint;
     private final Paint pointPaint;
     private final Paint textPaint;
+    private final Paint kptTextPaint;
+    private final Paint posePaint;
 
     private float[] boxes = new float[0];
-    private float[] landmarks = null;   // 10 float/mặt, có thể null
-    private float[] scores = null;      // confidence 0..1/mặt, có thể null
+    private float[] landmarks = null;
+    private float[] scores = null;
+    private float[] landmarkScores = null;
+    private float[] pose = null;
     private int frameW = 0;
     private int frameH = 0;
     private boolean mirror = false;
@@ -41,6 +47,16 @@ public class CameraPreview extends View {
         textPaint.setTextSize(34f);
         textPaint.setFakeBoldText(true);
         textPaint.setShadowLayer(4f, 0f, 0f, Color.BLACK);
+
+        kptTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        kptTextPaint.setTextSize(20f);
+        kptTextPaint.setShadowLayer(3f, 0f, 0f, Color.BLACK);
+
+        posePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        posePaint.setColor(Color.CYAN);
+        posePaint.setTextSize(30f);
+        posePaint.setFakeBoldText(true);
+        posePaint.setShadowLayer(4f, 0f, 0f, Color.BLACK);
     }
 
     public void setMirror(boolean mirror) {
@@ -49,11 +65,12 @@ public class CameraPreview extends View {
         invalidate();
     }
 
-    public void setResults(float[] boxes, float[] landmarks, float[] scores,
-                           int frameW, int frameH) {
-        this.boxes = boxes;
-        this.landmarks = landmarks;
-        this.scores = scores;
+    public void setResults(DetectionResult r, int frameW, int frameH) {
+        this.boxes = r.boxes;
+        this.landmarks = r.landmarks;
+        this.scores = r.scores;
+        this.landmarkScores = r.landmarkScores;
+        this.pose = r.pose;
         this.frameW = frameW;
         this.frameH = frameH;
         invalidate();
@@ -63,6 +80,8 @@ public class CameraPreview extends View {
         this.boxes = new float[0];
         this.landmarks = null;
         this.scores = null;
+        this.landmarkScores = null;
+        this.pose = null;
         invalidate();
     }
 
@@ -81,6 +100,8 @@ public class CameraPreview extends View {
         final int n = boxes.length / 4;
         final boolean hasLm = landmarks != null && landmarks.length >= n * 10;
         final boolean hasSc = scores != null && scores.length >= n;
+        final boolean hasKs = landmarkScores != null && landmarkScores.length >= n * 5;
+        final boolean hasPose = pose != null && pose.length >= n * 3;
 
         for (int i = 0; i < n; i++) {
             float x = boxes[i * 4];
@@ -109,6 +130,14 @@ public class CameraPreview extends View {
                         left + 4f, ty, textPaint);
             }
 
+            if (hasPose && !Float.isNaN(pose[i * 3])) {
+                float py = bottom + 34f;
+                if (py > viewH - 8f) py = top - 46f;
+                canvas.drawText(String.format(Locale.US, "Y%.0f P%.0f R%.0f",
+                                pose[i * 3], pose[i * 3 + 1], pose[i * 3 + 2]),
+                        left + 4f, py, posePaint);
+            }
+
             if (hasLm) {
                 for (int p = 0; p < 5; p++) {
                     float px = landmarks[i * 10 + p * 2]     * scale + dx;
@@ -118,6 +147,12 @@ public class CameraPreview extends View {
                     }
                     pointPaint.setColor(LM_COLORS[p]);
                     canvas.drawCircle(px, py, LM_RADIUS, pointPaint);
+                    if (hasKs) {
+                        kptTextPaint.setColor(LM_COLORS[p]);
+                        canvas.drawText(
+                                String.valueOf(Math.round(landmarkScores[i * 5 + p] * 100)),
+                                px + LM_RADIUS + 2f, py - LM_RADIUS, kptTextPaint);
+                    }
                 }
             }
         }
